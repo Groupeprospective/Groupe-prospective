@@ -2350,6 +2350,12 @@ button.gp-fixed-action{
 }
 
 </style>
+
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GP Gestion">
+  <meta name="theme-color" content="#7ac943">
 </head><body>
 <header><div class="wrap topbar"><div class="brand"><img class="logo" src="logo.png" alt="Logo"><div><h1>Centre de gestion Groupe Prospective</h1><p>Matériaux · Isolation · Clients · Factures · Paiements</p></div></div><div class="actions noprint"><button class="secondary" onclick="window.print()">PDF / Imprimer</button></div></div></header>
 <main class="wrap"><nav class="nav noprint"><button class="active" onclick="showPage('dashboard',this)">Tableau de bord</button><button onclick="showPage('materials',this)">Matériaux</button><button onclick="showPage('isolation',this)">Isolation</button><button onclick="showPage('construction',this)">Construction</button><button onclick="showPage('clients',this)">Clients</button><button onclick="showPage('billing',this)">Factures / Paiements</button></nav><section id="dashboard" class="page"></section><section id="materials" class="page hidden"></section><section id="isolation" class="page hidden"></section><section id="construction" class="page hidden"></section><section id="clients" class="page hidden"></section><section id="billing" class="page hidden"></section></main>
@@ -2788,7 +2794,7 @@ function renderMaterials(){document.getElementById('materials').innerHTML=`<div 
 function renderClients(){document.getElementById('clients').innerHTML=`<div class="toolbar"><h2>Clients</h2><button onclick="document.getElementById('clientForm').classList.toggle('hidden')">Ajouter client</button></div><div id="clientForm" class="card hidden noprint"><h3>Nouveau client</h3><div class="fg">${select('Type','c_type',['Entrepreneur','Résidentiel','Commercial'])}${input('Entreprise','c_company')}${input('Nom contact','c_name')}${input('Téléphone','c_phone')}${input('Email','c_email')}${input('Adresse','c_address')}${input('Solde','c_balance',0,'number')}${input('Notes','c_notes')}</div><br><button onclick="addClient()">Enregistrer client</button></div><div class="grid grid2">${clients.map(c=>{let invs=invoices.filter(i=>i.clientId===c.id),bal=invs.reduce((s,i)=>s+invoiceBalance(i),0)+Number(c.balance||0);return `<div class="card"><h3>${fullName(c)}</h3>${badge(c.type)}<p><strong>Tél:</strong> ${c.phone||'-'}<br><strong>Email:</strong> ${c.email||'-'}<br><strong>Adresse:</strong> ${c.address||'-'}</p><div class="grid grid3">${stat('Devis',isolationQuotes.filter(q=>q.clientId===c.id).length,'Isolation')}${stat('Factures',invs.length,'Dossier')}${stat('Solde',money(bal),'À recevoir',bal>0)}</div><p class="muted">${c.notes||''}</p></div>`}).join('')}</div>`}function addClient(){clients.unshift({id:id(),type:val('c_type'),company:val('c_company'),name:val('c_name'),phone:val('c_phone'),email:val('c_email'),address:val('c_address'),balance:num('c_balance'),notes:val('c_notes')});persist()}
 function renderIsolation(){let q=quote(selectedQuoteId)||isolationQuotes[0];document.getElementById('isolation').innerHTML=`<div class="toolbar"><h2>Isolation</h2><button onclick="document.getElementById('quoteForm').classList.toggle('hidden')">Nouveau devis isolation</button></div><div id="quoteForm" class="card hidden noprint"><h3>Créer un devis rapide</h3><div class="fg">${selectObj('Client existant','q_client',[[0,'Nouveau client / non relié'],...clients.map(c=>[c.id,fullName(c)])])}${input('Nom client','q_name')}${input('Email','q_email')}${input('Téléphone','q_phone')}${input('Adresse chantier','q_site')}${input('Prix uréthane $/po/pi²','q_pu',1.45,'number')}${input('Prix cellulose $/pi²','q_pc',1.10,'number')}${input('Dépôt %','q_dep',20,'number')}</div><h3 style="margin-top:18px">Sections</h3><div class="grid grid2"><div class="card soft"><strong>Section 1</strong><div class="fg3">${select('Type','s1_type',['Uréthane','Cellulose'])}${select('Mode','s1_mode',['Murs','Plafond','Manuel'])}${input('Description','s1_desc','Murs garage')}${input('Longueur','s1_l',20,'number')}${input('Largeur','s1_w',24,'number')}${input('Hauteur','s1_h',9,'number')}${input('Surface manuelle','s1_m',0,'number')}${input('Épaisseur po','s1_t',3,'number')}</div></div><div class="card soft"><strong>Section 2</strong><div class="fg3">${select('Type','s2_type',['Cellulose','Uréthane'])}${select('Mode','s2_mode',['Plafond','Murs','Manuel'])}${input('Description','s2_desc','Grenier cellulose')}${input('Longueur','s2_l',20,'number')}${input('Largeur','s2_w',24,'number')}${input('Hauteur','s2_h',0,'number')}${input('Surface manuelle','s2_m',0,'number')}${input('Épaisseur po','s2_t',5,'number')}</div></div></div><h3 style="margin-top:18px">Extras</h3><div class="fg">${input('Préparation','e_prep',250,'number')}${input('Protection','e_protect',150,'number')}${input('Nettoyage','e_clean',100,'number')}${input('Déplacement','e_travel',0,'number')}${input('Autre','e_other',0,'number')}${input('Rabais','e_discount',0,'number')}${input('Notes','q_notes')}</div><br><button onclick="createIsolationQuote()">Créer devis</button></div><div class="split"><div class="card">${isolationQuotes.map(x=>`<button class="listbtn ${q?.id===x.id?'active':''}" onclick="selectedQuoteId=${x.id};renderIsolation()"><strong>${x.number}</strong><br>${x.clientName}<br>${badge(x.status)}<br><span class="amount">${money(quoteCalc(x).total)}</span><br><span class="muted">${x.site}</span></button>`).join('')}</div><div>${q?quoteDetail(q):'<div class="card">Aucun devis.</div>'}</div></div>`}function createIsolationQuote(){let cid=num('q_client'),sel=client(cid),clientName=val('q_name')||sel?.name||sel?.company||'Client',qid=id();isolationQuotes.unshift({id:qid,number:'ISO-2026-'+String(qid).slice(-4),clientId:cid||null,clientName,email:val('q_email')||sel?.email||'',phone:val('q_phone')||sel?.phone||'',site:val('q_site'),status:'Brouillon',date:today(),scheduled:'',depositRate:num('q_dep')||20,paidDeposit:0,notes:val('q_notes'),prices:{urethane:num('q_pu')||1.45,cellulose:num('q_pc')||1.10},extras:{prep:num('e_prep'),protect:num('e_protect'),clean:num('e_clean'),travel:num('e_travel'),other:num('e_other'),discount:num('e_discount')},sections:[{type:val('s1_type'),mode:val('s1_mode'),desc:val('s1_desc'),l:num('s1_l'),w:num('s1_w'),h:num('s1_h'),manual:num('s1_m'),thick:num('s1_t')},{type:val('s2_type'),mode:val('s2_mode'),desc:val('s2_desc'),l:num('s2_l'),w:num('s2_w'),h:num('s2_h'),manual:num('s2_m'),thick:num('s2_t')}]});selectedQuoteId=qid;persist()}function quoteDetail(q){let c=quoteCalc(q),steps=['Brouillon','Envoyé','Accepté','Dépôt reçu','Planifié','Terminé'];return `<div class="card"><div class="toolbar"><div><h2>${q.number} · ${q.clientName}</h2>${badge(q.status)} <span class="muted">${q.email||''}</span></div><div class="amount" style="font-size:24px">${money(c.total)}</div></div><div class="workflow">${steps.map(s=>`<div class="step ${steps.indexOf(s)<=steps.indexOf(q.status)||q.status===s?'on':''}">${s}</div>`).join('')}</div><p><strong>Chantier:</strong> ${q.site||'-'}<br><strong>Date prévue:</strong> ${q.scheduled||'À planifier'}<br><strong>Notes:</strong> ${q.notes||'-'}</p><div class="grid grid4">${stat('Travaux',money(c.work),'Uréthane / cellulose')}${stat('Extras',money(c.extras),'Avec rabais')}${stat('Dépôt',money(c.deposit),q.depositRate+'%')}${stat('Solde',money(c.balance),'Après dépôt',c.balance>0)}</div><h3 style="margin-top:18px">Sections</h3><div class="tablewrap"><table><thead><tr><th>Type</th><th>Mode</th><th>Description</th><th>Surface</th><th>Épais.</th><th>Total</th></tr></thead><tbody>${(q.sections||[]).map(s=>{let surf=quoteSurface(s),line=s.type==='Uréthane'?surf*Number(s.thick||0)*Number(q.prices?.urethane||1.45):surf*Number(q.prices?.cellulose||1.1);return `<tr><td>${s.type}</td><td>${s.mode}</td><td>${s.desc}</td><td>${surf.toFixed(0)} pi²</td><td>${s.thick||'-'}</td><td class="amount">${money(line)}</td></tr>`}).join('')}</tbody></table></div><div class="toolbar noprint" style="margin-top:16px"><button onclick="emailQuote(${q.id})" title="Envoyer le devis par email au client">📧 Email client</button><button onclick="printQuote(${q.id})" class="secondary">🖨 Imprimer</button><button type="button" class="secondary" onclick="setQuoteStatus(${q.id},'Accepté')">Marquer accepté</button><button class="secondary" onclick="createDepositInvoice(${q.id})">Créer facture dépôt</button><button class="secondary" onclick="scheduleQuote(${q.id})">Céduler</button><button type="button" class="secondary" onclick="setQuoteStatus(${q.id},'Terminé')">Travaux terminés</button><button type="button" onclick="gpCleanIsoFinalInvoice(${q.id})">Facture finale</button><button class="secondary" style="background:rgba(255,92,92,.15);color:#ffb3b3;border:1px solid rgba(255,92,92,.25);" onclick="deleteQuote(${q.id})">🗑 Supprimer</button></div></div>`}function setQuoteStatus(qid,status){let q=quote(qid);if(q){q.status=status;persist();renderIsolation();}}function scheduleQuote(qid){let q=quote(qid);if(!q)return;let d=prompt('Date prévue du chantier (AAAA-MM-JJ)',q.scheduled||today());if(d){q.scheduled=d;if(!['Terminé','Facturé'].includes(q.status))q.status='Planifié';persist();renderIsolation();}}function emailQuote(qid){let q=quote(qid),c=quoteCalc(q);if(!q)return;q.status='Envoyé';persist();renderIsolation();let subject=encodeURIComponent('Devis '+q.number+' - Groupe Prospective'),body=encodeURIComponent(`Bonjour ${q.clientName},\n\nVoici votre devis d'isolation ${q.number}.\n\nChantier: ${q.site}\nTotal estimé avec taxes: ${money(c.total)}\nDépôt proposé: ${money(c.deposit)}\n\nMerci,\nGroupe Prospective`);window.location.href=`mailto:${q.email||''}?subject=${subject}&body=${body}`}function createDepositInvoice(qid){let q=quote(qid);if(!q)return;let ex=invoices.find(i=>i.source==='Isolation'&&i.sourceId===qid&&i.type==='Dépôt isolation');if(ex){selectedInvoiceId=ex.id;showPage('billing',document.querySelectorAll('.nav button')[5]);return}let iid=id();invoices.unshift({id:iid,number:'FAC-DEP-'+String(iid).slice(-4),source:'Isolation',sourceId:qid,clientId:q.clientId,type:'Dépôt isolation',status:'Non payé',date:today(),due:today(),paid:0,notes:'Dépôt pour devis '+q.number});selectedInvoiceId=iid;q.status='Accepté';persist();renderIsolation();showPage('billing',document.querySelectorAll('.nav button')[5])}function createFinalInvoice(qid){let q=quote(qid);if(!q)return;let iid=id();invoices.unshift({id:iid,number:'FAC-FIN-'+String(iid).slice(-4),source:'Isolation',sourceId:qid,clientId:q.clientId,type:'Facture finale isolation',status:'Non payé',date:today(),due:today(),paid:0,notes:'Facture finale pour '+q.number});selectedInvoiceId=iid;q.status='Facturé';persist();renderIsolation();showPage('billing',document.querySelectorAll('.nav button')[5])}
 function renderBilling(){let inv=invoice(selectedInvoiceId)||invoices[0];document.getElementById('billing').innerHTML=`<div class="split"><div class="card"><h2>Factures</h2>${invoices.map(i=>`<button class="listbtn ${inv?.id===i.id?'active':''}" onclick="selectedInvoiceId=${i.id};renderBilling()"><strong>${i.number}</strong><br>${i.type}<br>${badge(i.status)}<br><span class="amount">${money(invoiceAmount(i))}</span><br><span class="muted">Solde ${money(invoiceBalance(i))}</span></button>`).join('')||'<p>Aucune facture.</p>'}</div><div>${inv?invoiceDetail(inv):'<div class="card">Aucune facture sélectionnée.</div>'}</div></div>`}function invoiceDetail(inv){let amt=invoiceAmount(inv),bal=invoiceBalance(inv),c=client(inv.clientId),q=inv.source==='Isolation'?quote(inv.sourceId):null,o=inv.source==='Matériaux'?order(inv.sourceId):null;return `<div class="card noprint"><div class="grid grid4">${stat('Facture',inv.number,inv.status)}${stat('Montant',money(amt),'Total')}${stat('Payé',money(inv.paid),'Comptabilisé',false,true)}${stat('Solde',money(bal),'À recevoir',bal>0)}</div><br><div class="fg">${input('Paiement reçu','pay_amount',bal,'number')}<div style="display:flex;align-items:end"><button onclick="recordPayment(${inv.id})">Ajouter paiement</button></div><div style="display:flex;align-items:end"><button class="secondary" onclick="payFull(${inv.id})">Payer complet</button></div><div style="display:flex;align-items:end;gap:8px"><button class="secondary" onclick="window.print()">PDF</button><button class="secondary" onclick="emailInvoice(${inv.id})">Email</button></div></div></div><br>${invoicePaper(inv,c,q,o,amt,bal)}`}function invoicePaper(inv,c,q,o,amount,bal){let rows='';if(inv.source==='Matériaux'&&o)rows=o.items.map(it=>`<tr><td><strong>${product(it.productId)?.name||''}</strong><br><span class="muted">${product(it.productId)?.sku||''}</span></td><td>${it.qty}</td><td>${money(it.price)}</td><td style="text-align:right">${money(Number(it.qty)*Number(it.price))}</td></tr>`).join('');if(inv.source==='Isolation'&&q)rows=(q.sections||[]).map(s=>{let surf=quoteSurface(s),line=s.type==='Uréthane'?surf*Number(s.thick||0)*Number(q.prices?.urethane||1.45):surf*Number(q.prices?.cellulose||1.1);return `<tr><td><strong>${s.type} — ${s.desc}</strong><br><span class="muted">${s.mode} · ${surf.toFixed(0)} pi²</span></td><td>1</td><td>${money(line)}</td><td style="text-align:right">${money(line)}</td></tr>`}).join('');let subtotal=amount/(1+TAX),taxes=amount-subtotal;return `<div class="card printcard"><div class="paper"><div class="phead"><div><img class="plogo" src="${LOGO}" alt="Logo"><h1>FACTURE</h1><p></p></div><div style="text-align:right"><h2>${inv.number}</h2><p>Date: ${inv.date}<br>Échéance: ${inv.due}</p>${badge(inv.status)}</div></div><div class="grid grid2"><div class="ibox"><strong>Facturé à</strong><br><br>${fullName(c)}<br>${c?.address||''}<br>${c?.phone||''}<br>${c?.email||''}</div><div class="ibox"><strong>Dossier</strong><br><br>${inv.type}<br>${q?('Devis '+q.number+'<br>'+q.site):''}${o?('Commande '+o.number+'<br>'+o.address):''}</div></div><br><table><thead><tr><th>Description</th><th>Qté</th><th>Prix</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table><br><div class="ibox" style="max-width:360px;margin-left:auto"><div class="line"><span>Sous-total estimé</span><strong>${money(subtotal)}</strong></div><div class="line"><span>TPS/TVQ</span><strong>${money(taxes)}</strong></div><div class="line total"><span>Total facture</span><strong>${money(amount)}</strong></div><div class="line"><span>Payé</span><strong>${money(inv.paid)}</strong></div><div class="line total"><span>Solde</span><strong>${money(bal)}</strong></div></div><p><strong>Notes:</strong> ${inv.notes||''}</p><p style="text-align:center;border-top:1px solid #ddd;padding-top:16px">Groupe Prospective · St-Cyrille-de-Wendover, QC</p></div></div>`}function recordPayment(iid){let a=num('pay_amount');if(a<=0)return alert('Entre un montant valide.');applyPayment(iid,a)}function payFull(iid){let i=invoice(iid);applyPayment(iid,invoiceBalance(i))}function applyPayment(iid,amt){let inv=invoice(iid);if(!inv)return;let amount=invoiceAmount(inv);inv.paid=Math.min(Number(inv.paid||0)+Number(amt),amount);inv.status=inv.paid>=amount?'Payé':inv.paid>0?'Partiel':'Non payé';if(inv.source==='Isolation'){let q=quote(inv.sourceId);if(q&&inv.type==='Dépôt isolation'){q.paidDeposit=inv.paid;if(inv.status==='Payé')q.status='Dépôt reçu'}}persist();renderBilling();}function emailInvoice(iid){let inv=invoice(iid),c=client(inv.clientId),bal=invoiceBalance(inv),amt=invoiceAmount(inv);let subject=encodeURIComponent('Facture '+inv.number+' - Groupe Prospective'),body=encodeURIComponent(`Bonjour ${c?.name||c?.company||''},\n\nVoici votre facture ${inv.number}.\n\nMontant total: ${money(amt)}\nMontant payé: ${money(inv.paid)}\nSolde: ${money(bal)}\n\nMerci,\nGroupe Prospective`);window.location.href=`mailto:${c?.email||''}?subject=${subject}&body=${body}`}
-function exportBackup(){let data={products,clients,materialOrders,isolationQuotes,invoices};let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='sauvegarde-groupe-prospective-v2.json';a.click()}function importBackup(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=x=>{let d=JSON.parse(x.target.result);products=d.products||products;clients=d.clients||clients;materialOrders=d.materialOrders||materialOrders;isolationQuotes=d.isolationQuotes||isolationQuotes;invoices=d.invoices||invoices;persist()};r.readAsText(f)}function exportInventoryCSV(){let rows=[['SKU','Nom','Catégorie','Stock','Réservé','Coût','Vente'],...products.map(p=>[p.sku,p.name,p.category,p.stock,p.reserved,p.cost,p.sell])];let csv=rows.map(r=>r.map(c=>'"'+String(c??'').replaceAll('"','""')+'"').join(',')).join('\n');let blob=new Blob([csv],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='inventaire-groupe-prospective.csv';a.click()}
+function exportBackup(){let cj=(typeof constructionJobs!=='undefined')?constructionJobs:[];let data={products,clients,materialOrders,isolationQuotes,invoices,constructionJobs:cj};let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='sauvegarde-groupe-prospective-v2.json';a.click()}function importBackup(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=x=>{let d=JSON.parse(x.target.result);products=d.products||products;clients=d.clients||clients;materialOrders=d.materialOrders||materialOrders;isolationQuotes=d.isolationQuotes||isolationQuotes;invoices=d.invoices||invoices;if(d.constructionJobs&&typeof constructionJobs!=='undefined')constructionJobs=d.constructionJobs;persist()};r.readAsText(f)}function exportInventoryCSV(){let rows=[['SKU','Nom','Catégorie','Stock','Réservé','Coût','Vente'],...products.map(p=>[p.sku,p.name,p.category,p.stock,p.reserved,p.cost,p.sell])];let csv=rows.map(r=>r.map(c=>'"'+String(c??'').replaceAll('"','""')+'"').join(',')).join('\n');let blob=new Blob([csv],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='inventaire-groupe-prospective.csv';a.click()}
 /* ===== MODULE CONSTRUCTION AJOUTÉ ===== */
 let constructionJobs = JSON.parse(localStorage.getItem(LS+"constructionJobs") || "null") || [
   {id:3001,number:"CON-2026-3001",clientId:1,clientName:"Construction Tremblay",email:"marc@constructiontremblay.ca",phone:"819-555-0144",site:"Chantier rénovation — Drummondville",status:"Brouillon",date:today(),scheduled:"",hourRate:90,laborHours:16,kmRate:0.75,km:80,materials:450,equipment:120,extras:150,discount:0,notes:"Main-d'oeuvre construction et petits travaux"}
@@ -8254,7 +8260,314 @@ function gpOpenDoc(jid,idx){
   const w=window.open("");
   if(!w) return;
   if(String(d.type||"").startsWith("image/")){
-    w.document.write(`<title>${d.name}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${d.data}" style="max-width:96vw;max-height:96vh"></body>`);
+    w.document.write(`<title>${d.name}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${d.data}" style="max-width:96vw;max-height:96vh">
+<script>
+/* ================================================================
+   GROUPE PROSPECTIVE — AMÉLIORATIONS v2
+   ================================================================ */
+
+// ── Paramètres entreprise (stockés en localStorage) ─────────────
+(function gpCompanySettings(){
+  var LS = 'gp_center_v2_';
+  var KEY = LS + 'companySettings';
+
+  function getSettings(){
+    try{ return JSON.parse(localStorage.getItem(KEY)) || {}; }catch(e){ return {}; }
+  }
+  function saveSettings(s){
+    localStorage.setItem(KEY, JSON.stringify(s));
+  }
+
+  window.gpGetSettings = getSettings;
+  window.gpSaveSettings = saveSettings;
+
+  // Injecte les paramètres dans tous les documents PDF
+  window.gpCompanyBlock = function(){
+    var s = getSettings();
+    var lines = [];
+    if(s.rbq)   lines.push('RBQ : ' + s.rbq);
+    if(s.neq)   lines.push('NEQ : ' + s.neq);
+    if(s.tps)   lines.push('TPS : ' + s.tps);
+    if(s.tvq)   lines.push('TVQ : ' + s.tvq);
+    if(s.ccq)   lines.push('CCQ : ' + s.ccq);
+    return lines.join(' &nbsp;·&nbsp; ');
+  };
+})();
+
+// ── Validité des devis (30 jours par défaut) ─────────────────────
+window.gpQuoteExpiry = function(dateStr, days){
+  days = days || 30;
+  var d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0,10);
+};
+window.gpIsQuoteExpired = function(q){
+  if(!q || !q.date) return false;
+  if(['Accepté','Dépôt reçu','Planifié','En cours','Terminé','Facturé'].includes(q.status)) return false;
+  var expiry = gpQuoteExpiry(q.date, q.validDays||30);
+  return expiry < new Date().toISOString().slice(0,10);
+};
+window.gpDaysUntilExpiry = function(q){
+  if(!q || !q.date) return null;
+  var expiry = new Date(gpQuoteExpiry(q.date, q.validDays||30));
+  var today  = new Date();
+  return Math.ceil((expiry - today) / 86400000);
+};
+
+// ── Panneau Paramètres entreprise ───────────────────────────────
+function gpInjectSettingsPanel(){
+  if(document.getElementById('gpSettingsPanel')) return;
+
+  // Ajouter onglet "Paramètres" dans la nav
+  var nav = document.querySelector('nav.nav');
+  if(nav){
+    var btn = document.createElement('button');
+    btn.id = 'gpSettingsNavBtn';
+    btn.textContent = '⚙ Paramètres';
+    btn.onclick = function(){ gpShowSettingsPanel(); };
+    btn.style.cssText = 'background:transparent;color:var(--muted);border:1px solid transparent;';
+    nav.appendChild(btn);
+  }
+
+  // Créer la section paramètres
+  var main = document.querySelector('main.wrap');
+  if(!main) return;
+
+  var s = window.gpGetSettings();
+  var section = document.createElement('section');
+  section.id = 'gpSettingsPanel';
+  section.className = 'page hidden';
+  section.innerHTML = `
+    <div class="card" style="max-width:780px;margin:0 auto">
+      <h2>⚙ Paramètres de l'entreprise</h2>
+      <p class="muted" style="margin-bottom:20px">Ces informations apparaissent sur vos devis et factures PDF.</p>
+
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px">
+        <div>
+          <label>Nom de l'entreprise</label>
+          <input id="gps_name" value="${s.name||'Groupe Prospective'}" placeholder="Groupe Prospective">
+        </div>
+        <div>
+          <label>Adresse</label>
+          <input id="gps_address" value="${s.address||'St-Cyrille-de-Wendover, QC'}" placeholder="Ville, QC">
+        </div>
+        <div>
+          <label>Téléphone</label>
+          <input id="gps_phone" value="${s.phone||''}" placeholder="819-XXX-XXXX">
+        </div>
+        <div>
+          <label>Courriel</label>
+          <input id="gps_email" value="${s.email||''}" placeholder="info@groupeprospective.com">
+        </div>
+        <div>
+          <label>Numéro RBQ <span style="color:#ff5c5c">*</span></label>
+          <input id="gps_rbq" value="${s.rbq||''}" placeholder="5821-XXXX-XX">
+        </div>
+        <div>
+          <label>Numéro NEQ</label>
+          <input id="gps_neq" value="${s.neq||''}" placeholder="XXXXXXXXX">
+        </div>
+        <div>
+          <label>Numéro TPS</label>
+          <input id="gps_tps" value="${s.tps||''}" placeholder="RT XXXXXXXXX">
+        </div>
+        <div>
+          <label>Numéro TVQ</label>
+          <input id="gps_tvq" value="${s.tvq||''}" placeholder="XXXXXXXXX TQ 0001">
+        </div>
+        <div>
+          <label>Numéro CCQ (si applicable)</label>
+          <input id="gps_ccq" value="${s.ccq||''}" placeholder="XXXXXXXXX">
+        </div>
+        <div>
+          <label>Assurance responsabilité</label>
+          <input id="gps_insurance" value="${s.insurance||''}" placeholder="Montant / Assureur">
+        </div>
+        <div>
+          <label>Validité des devis (jours)</label>
+          <input id="gps_validdays" type="number" value="${s.validDays||30}" min="1" max="365">
+        </div>
+        <div>
+          <label>Site web</label>
+          <input id="gps_website" value="${s.website||'groupeprospective.netlify.app'}" placeholder="www.votre-site.com">
+        </div>
+      </div>
+
+      <div style="margin-top:22px;padding:14px;border-radius:16px;background:rgba(255,204,102,.08);border:1px solid rgba(255,204,102,.22)">
+        <p style="color:var(--warning);font-weight:900;margin:0 0 8px">⚠ Obligations légales Québec</p>
+        <p class="muted" style="margin:0;font-size:13px">Votre numéro RBQ est obligatoire sur tous les contrats de construction. Vos numéros TPS/TVQ sont requis sur toutes les factures si vos revenus dépassent 30 000 $/an.</p>
+      </div>
+
+      <div style="margin-top:18px;display:flex;gap:10px">
+        <button onclick="gpSaveSettingsForm()">💾 Sauvegarder</button>
+        <button class="secondary" onclick="gpCloseSettings()">Fermer</button>
+      </div>
+      <div id="gpSettingsSaved" style="margin-top:10px;color:#22d18b;font-weight:900;display:none">✅ Paramètres sauvegardés !</div>
+    </div>
+  `;
+  main.appendChild(section);
+}
+
+window.gpShowSettingsPanel = function(){
+  document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));
+  var panel = document.getElementById('gpSettingsPanel');
+  if(panel){ panel.classList.remove('hidden'); }
+  document.querySelectorAll('nav.nav button').forEach(b=>b.classList.remove('active'));
+  var nb = document.getElementById('gpSettingsNavBtn');
+  if(nb) nb.classList.add('active');
+};
+
+window.gpCloseSettings = function(){
+  document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));
+  var dash = document.getElementById('dashboard');
+  if(dash) dash.classList.remove('hidden');
+  document.querySelectorAll('nav.nav button').forEach((b,i)=>{ if(i===0) b.classList.add('active'); else b.classList.remove('active'); });
+};
+
+window.gpSaveSettingsForm = function(){
+  var s = {
+    name:       document.getElementById('gps_name')?.value?.trim() || '',
+    address:    document.getElementById('gps_address')?.value?.trim() || '',
+    phone:      document.getElementById('gps_phone')?.value?.trim() || '',
+    email:      document.getElementById('gps_email')?.value?.trim() || '',
+    rbq:        document.getElementById('gps_rbq')?.value?.trim() || '',
+    neq:        document.getElementById('gps_neq')?.value?.trim() || '',
+    tps:        document.getElementById('gps_tps')?.value?.trim() || '',
+    tvq:        document.getElementById('gps_tvq')?.value?.trim() || '',
+    ccq:        document.getElementById('gps_ccq')?.value?.trim() || '',
+    insurance:  document.getElementById('gps_insurance')?.value?.trim() || '',
+    validDays:  parseInt(document.getElementById('gps_validdays')?.value) || 30,
+    website:    document.getElementById('gps_website')?.value?.trim() || '',
+  };
+  window.gpSaveSettings(s);
+  var ok = document.getElementById('gpSettingsSaved');
+  if(ok){ ok.style.display='block'; setTimeout(()=>ok.style.display='none',3000); }
+  // Déclenche un sync Firebase
+  if(typeof _gpSaveToCloud === 'function') {
+    clearTimeout(window._gpSyncTimer);
+    window._gpSyncTimer = setTimeout(_gpSaveToCloud, 1000);
+  }
+};
+
+// ── Alertes devis expirés dans le dashboard ──────────────────────
+function gpInjectExpiryAlerts(){
+  var alertBox = document.getElementById('gpExpiryAlerts');
+  if(!alertBox) return;
+  var quotes = (typeof isolationQuotes !== 'undefined' ? isolationQuotes : [])
+    .concat(typeof constructionJobs !== 'undefined' ? constructionJobs : []);
+  var expiring = [], expired = [];
+  quotes.forEach(function(q){
+    if(!['Brouillon','Envoyé'].includes(q.status||'')) return;
+    var days = window.gpDaysUntilExpiry(q);
+    if(days === null) return;
+    if(days < 0) expired.push({q:q, days:days});
+    else if(days <= 7) expiring.push({q:q, days:days});
+  });
+  var html = '';
+  expired.forEach(function(x){
+    html += '<div style="padding:10px 14px;border-radius:14px;background:rgba(255,92,92,.10);border:1px solid rgba(255,92,92,.25);margin-bottom:8px;font-size:13px">' +
+      '<span style="color:#ffb3b3;font-weight:900">⚠ Devis expiré</span> — ' +
+      (x.q.clientName||x.q.client||'Client') + ' · ' +
+      'Expiré depuis ' + Math.abs(x.days) + ' jour(s)' +
+      '</div>';
+  });
+  expiring.forEach(function(x){
+    html += '<div style="padding:10px 14px;border-radius:14px;background:rgba(255,204,102,.10);border:1px solid rgba(255,204,102,.25);margin-bottom:8px;font-size:13px">' +
+      '<span style="color:#ffcc66;font-weight:900">⏰ Expire bientôt</span> — ' +
+      (x.q.clientName||x.q.client||'Client') + ' · ' +
+      'Expire dans ' + x.days + ' jour(s)' +
+      '</div>';
+  });
+  alertBox.innerHTML = html;
+  alertBox.style.display = html ? 'block' : 'none';
+}
+
+// ── Bloc numéros légaux pour les pieds de page PDF ───────────────
+window.gpLegalFooter = function(){
+  var s = window.gpGetSettings ? window.gpGetSettings() : {};
+  var parts = [];
+  if(s.rbq) parts.push('RBQ : ' + s.rbq);
+  if(s.tps) parts.push('TPS : ' + s.tps);
+  if(s.tvq) parts.push('TVQ : ' + s.tvq);
+  if(s.neq) parts.push('NEQ : ' + s.neq);
+  return parts.length ? '<div style="margin-top:10px;font-size:11px;color:#888;border-top:1px solid #eee;padding-top:8px">' + parts.join(' &nbsp;·&nbsp; ') + '</div>' : '';
+};
+
+// ── Badge "Expiré" sur les devis ─────────────────────────────────
+window.gpExpiryBadge = function(q){
+  if(!q || !q.date) return '';
+  if(!['Brouillon','Envoyé'].includes(q.status||'')) return '';
+  var days = window.gpDaysUntilExpiry(q);
+  if(days === null) return '';
+  if(days < 0) return '<span style="background:rgba(255,92,92,.16);color:#ffb3b3;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:900;margin-left:6px">EXPIRÉ</span>';
+  if(days <= 7) return '<span style="background:rgba(255,204,102,.16);color:#ffcc66;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:900;margin-left:6px">Expire dans '+days+'j</span>';
+  return '';
+};
+
+// ── PWA — manifest dynamique ─────────────────────────────────────
+(function gpInjectPWA(){
+  if(document.querySelector('link[rel="manifest"]')) return;
+  var manifest = {
+    name: 'Groupe Prospective — Gestion',
+    short_name: 'GP Gestion',
+    description: 'Logiciel de gestion Groupe Prospective',
+    start_url: '/',
+    display: 'standalone',
+    background_color: '#070a08',
+    theme_color: '#7ac943',
+    icons: [
+      { src: 'logo.png', sizes: '192x192', type: 'image/png' },
+      { src: 'logo.png', sizes: '512x512', type: 'image/png' }
+    ]
+  };
+  var blob = new Blob([JSON.stringify(manifest)], {type:'application/json'});
+  var url  = URL.createObjectURL(blob);
+  var link = document.createElement('link');
+  link.rel  = 'manifest';
+  link.href = url;
+  document.head.appendChild(link);
+
+  var meta = document.createElement('meta');
+  meta.name = 'theme-color';
+  meta.content = '#7ac943';
+  document.head.appendChild(meta);
+
+  var metaApple = document.createElement('meta');
+  metaApple.name = 'apple-mobile-web-app-capable';
+  metaApple.content = 'yes';
+  document.head.appendChild(metaApple);
+})();
+
+// ── Initialisation au démarrage ──────────────────────────────────
+document.addEventListener('DOMContentLoaded', function(){
+  setTimeout(function(){
+    gpInjectSettingsPanel();
+
+    // Injecter la zone d'alertes expiration dans le dashboard
+    var dash = document.getElementById('dashboard');
+    if(dash){
+      var alertDiv = document.createElement('div');
+      alertDiv.id = 'gpExpiryAlerts';
+      alertDiv.style.marginBottom = '14px';
+      dash.prepend(alertDiv);
+    }
+
+    // Vérifier les expirations à chaque rendu du dashboard
+    var origRenderDash = window.renderDashboard;
+    if(typeof origRenderDash === 'function'){
+      window.renderDashboard = function(){
+        origRenderDash.apply(this, arguments);
+        gpInjectExpiryAlerts();
+      };
+    }
+
+    gpInjectExpiryAlerts();
+  }, 600);
+});
+
+</script>
+
+</body>`);
   }else{
     w.document.write(`<title>${d.name}</title><iframe src="${d.data}" style="border:0;width:100vw;height:100vh"></iframe>`);
   }
@@ -13038,14 +13351,38 @@ window._gpCurrentUser = null;
 window._gpSyncEnabled = false;
 window._gpSyncTimer = null;
 
-function _gpSetSync(state) {
-  var dot = document.getElementById('gpSyncDot');
-  var txt = document.getElementById('gpSyncTxt');
+function _gpSetSync(state, detail) {
+  var badge = document.getElementById('gpSyncBadge');
+  var dot   = document.getElementById('gpSyncDot');
+  var txt   = document.getElementById('gpSyncTxt');
   if (!dot || !txt) return;
-  if (state==='saving'){dot.style.background='#ffcc66';txt.textContent='Sync en cours…';}
-  else if(state==='saved'){dot.style.background='#22d18b';txt.textContent='Sauvegardé ✓';}
-  else if(state==='error'){dot.style.background='#ff5c5c';txt.textContent='Erreur sync';}
-  else{dot.style.background='#9da79f';txt.textContent='Sync';}
+  if (state==='hidden'){if(badge)badge.style.display='none';return;}
+  if(badge)badge.style.display='flex';
+  if (state==='saving'){
+    dot.style.background='#ffcc66';
+    txt.textContent='Sauvegarde…';
+  } else if(state==='saved'){
+    dot.style.background='#22d18b';
+    txt.textContent='Sauvegardé ✓ '+_gpTimeNow();
+  } else if(state==='error'){
+    dot.style.background='#ff5c5c';
+    txt.textContent = detail ? ('Sync: '+detail) : 'Hors ligne — données locales OK';
+    // Retry automatique dans 30 secondes
+    clearTimeout(window._gpRetryTimer);
+    window._gpRetryTimer = setTimeout(function(){
+      if(window._gpCurrentUser && window._gpSyncEnabled) _gpSaveToCloud();
+    }, 30000);
+  } else if(state==='offline'){
+    dot.style.background='#9da79f';
+    txt.textContent='Mode local';
+  } else {
+    dot.style.background='#9da79f';
+    txt.textContent='Sync';
+  }
+}
+function _gpTimeNow(){
+  var d=new Date();
+  return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
 }
 
 function _gpSaveToCloud() {
@@ -13073,7 +13410,14 @@ function _gpLoadFromCloud(uid) {
     }
     _gpSetSync('saved');
     window._gpSyncEnabled=true;
-  }).catch(function(e){console.error('Load error',e);_gpSetSync('error');});
+  }).catch(function(e){
+    console.error('Load error',e);
+    var msg = e.code==='permission-denied' ? 'Règles Firestore à configurer'
+            : e.code==='unavailable'       ? 'Hors ligne'
+            : 'Erreur réseau';
+    _gpSetSync('error', msg);
+    window._gpSyncEnabled = true; // Continue en mode local
+  });
 }
 
 (function(){
@@ -13178,6 +13522,7 @@ document.addEventListener('DOMContentLoaded',function(){
       window._gpCurrentUser=null;
       window._gpSyncEnabled=false;
       if(overlay)overlay.style.display='flex';
+      _gpSetSync('hidden');
     }
   });
 })();
