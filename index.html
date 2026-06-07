@@ -2351,6 +2351,11 @@ button.gp-fixed-action{
 
 </style>
 
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -8260,314 +8265,7 @@ function gpOpenDoc(jid,idx){
   const w=window.open("");
   if(!w) return;
   if(String(d.type||"").startsWith("image/")){
-    w.document.write(`<title>${d.name}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${d.data}" style="max-width:96vw;max-height:96vh">
-<script>
-/* ================================================================
-   GROUPE PROSPECTIVE — AMÉLIORATIONS v2
-   ================================================================ */
-
-// ── Paramètres entreprise (stockés en localStorage) ─────────────
-(function gpCompanySettings(){
-  var LS = 'gp_center_v2_';
-  var KEY = LS + 'companySettings';
-
-  function getSettings(){
-    try{ return JSON.parse(localStorage.getItem(KEY)) || {}; }catch(e){ return {}; }
-  }
-  function saveSettings(s){
-    localStorage.setItem(KEY, JSON.stringify(s));
-  }
-
-  window.gpGetSettings = getSettings;
-  window.gpSaveSettings = saveSettings;
-
-  // Injecte les paramètres dans tous les documents PDF
-  window.gpCompanyBlock = function(){
-    var s = getSettings();
-    var lines = [];
-    if(s.rbq)   lines.push('RBQ : ' + s.rbq);
-    if(s.neq)   lines.push('NEQ : ' + s.neq);
-    if(s.tps)   lines.push('TPS : ' + s.tps);
-    if(s.tvq)   lines.push('TVQ : ' + s.tvq);
-    if(s.ccq)   lines.push('CCQ : ' + s.ccq);
-    return lines.join(' &nbsp;·&nbsp; ');
-  };
-})();
-
-// ── Validité des devis (30 jours par défaut) ─────────────────────
-window.gpQuoteExpiry = function(dateStr, days){
-  days = days || 30;
-  var d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0,10);
-};
-window.gpIsQuoteExpired = function(q){
-  if(!q || !q.date) return false;
-  if(['Accepté','Dépôt reçu','Planifié','En cours','Terminé','Facturé'].includes(q.status)) return false;
-  var expiry = gpQuoteExpiry(q.date, q.validDays||30);
-  return expiry < new Date().toISOString().slice(0,10);
-};
-window.gpDaysUntilExpiry = function(q){
-  if(!q || !q.date) return null;
-  var expiry = new Date(gpQuoteExpiry(q.date, q.validDays||30));
-  var today  = new Date();
-  return Math.ceil((expiry - today) / 86400000);
-};
-
-// ── Panneau Paramètres entreprise ───────────────────────────────
-function gpInjectSettingsPanel(){
-  if(document.getElementById('gpSettingsPanel')) return;
-
-  // Ajouter onglet "Paramètres" dans la nav
-  var nav = document.querySelector('nav.nav');
-  if(nav){
-    var btn = document.createElement('button');
-    btn.id = 'gpSettingsNavBtn';
-    btn.textContent = '⚙ Paramètres';
-    btn.onclick = function(){ gpShowSettingsPanel(); };
-    btn.style.cssText = 'background:transparent;color:var(--muted);border:1px solid transparent;';
-    nav.appendChild(btn);
-  }
-
-  // Créer la section paramètres
-  var main = document.querySelector('main.wrap');
-  if(!main) return;
-
-  var s = window.gpGetSettings();
-  var section = document.createElement('section');
-  section.id = 'gpSettingsPanel';
-  section.className = 'page hidden';
-  section.innerHTML = `
-    <div class="card" style="max-width:780px;margin:0 auto">
-      <h2>⚙ Paramètres de l'entreprise</h2>
-      <p class="muted" style="margin-bottom:20px">Ces informations apparaissent sur vos devis et factures PDF.</p>
-
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px">
-        <div>
-          <label>Nom de l'entreprise</label>
-          <input id="gps_name" value="${s.name||'Groupe Prospective'}" placeholder="Groupe Prospective">
-        </div>
-        <div>
-          <label>Adresse</label>
-          <input id="gps_address" value="${s.address||'St-Cyrille-de-Wendover, QC'}" placeholder="Ville, QC">
-        </div>
-        <div>
-          <label>Téléphone</label>
-          <input id="gps_phone" value="${s.phone||''}" placeholder="819-XXX-XXXX">
-        </div>
-        <div>
-          <label>Courriel</label>
-          <input id="gps_email" value="${s.email||''}" placeholder="info@groupeprospective.com">
-        </div>
-        <div>
-          <label>Numéro RBQ <span style="color:#ff5c5c">*</span></label>
-          <input id="gps_rbq" value="${s.rbq||''}" placeholder="5821-XXXX-XX">
-        </div>
-        <div>
-          <label>Numéro NEQ</label>
-          <input id="gps_neq" value="${s.neq||''}" placeholder="XXXXXXXXX">
-        </div>
-        <div>
-          <label>Numéro TPS</label>
-          <input id="gps_tps" value="${s.tps||''}" placeholder="RT XXXXXXXXX">
-        </div>
-        <div>
-          <label>Numéro TVQ</label>
-          <input id="gps_tvq" value="${s.tvq||''}" placeholder="XXXXXXXXX TQ 0001">
-        </div>
-        <div>
-          <label>Numéro CCQ (si applicable)</label>
-          <input id="gps_ccq" value="${s.ccq||''}" placeholder="XXXXXXXXX">
-        </div>
-        <div>
-          <label>Assurance responsabilité</label>
-          <input id="gps_insurance" value="${s.insurance||''}" placeholder="Montant / Assureur">
-        </div>
-        <div>
-          <label>Validité des devis (jours)</label>
-          <input id="gps_validdays" type="number" value="${s.validDays||30}" min="1" max="365">
-        </div>
-        <div>
-          <label>Site web</label>
-          <input id="gps_website" value="${s.website||'groupeprospective.netlify.app'}" placeholder="www.votre-site.com">
-        </div>
-      </div>
-
-      <div style="margin-top:22px;padding:14px;border-radius:16px;background:rgba(255,204,102,.08);border:1px solid rgba(255,204,102,.22)">
-        <p style="color:var(--warning);font-weight:900;margin:0 0 8px">⚠ Obligations légales Québec</p>
-        <p class="muted" style="margin:0;font-size:13px">Votre numéro RBQ est obligatoire sur tous les contrats de construction. Vos numéros TPS/TVQ sont requis sur toutes les factures si vos revenus dépassent 30 000 $/an.</p>
-      </div>
-
-      <div style="margin-top:18px;display:flex;gap:10px">
-        <button onclick="gpSaveSettingsForm()">💾 Sauvegarder</button>
-        <button class="secondary" onclick="gpCloseSettings()">Fermer</button>
-      </div>
-      <div id="gpSettingsSaved" style="margin-top:10px;color:#22d18b;font-weight:900;display:none">✅ Paramètres sauvegardés !</div>
-    </div>
-  `;
-  main.appendChild(section);
-}
-
-window.gpShowSettingsPanel = function(){
-  document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));
-  var panel = document.getElementById('gpSettingsPanel');
-  if(panel){ panel.classList.remove('hidden'); }
-  document.querySelectorAll('nav.nav button').forEach(b=>b.classList.remove('active'));
-  var nb = document.getElementById('gpSettingsNavBtn');
-  if(nb) nb.classList.add('active');
-};
-
-window.gpCloseSettings = function(){
-  document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));
-  var dash = document.getElementById('dashboard');
-  if(dash) dash.classList.remove('hidden');
-  document.querySelectorAll('nav.nav button').forEach((b,i)=>{ if(i===0) b.classList.add('active'); else b.classList.remove('active'); });
-};
-
-window.gpSaveSettingsForm = function(){
-  var s = {
-    name:       document.getElementById('gps_name')?.value?.trim() || '',
-    address:    document.getElementById('gps_address')?.value?.trim() || '',
-    phone:      document.getElementById('gps_phone')?.value?.trim() || '',
-    email:      document.getElementById('gps_email')?.value?.trim() || '',
-    rbq:        document.getElementById('gps_rbq')?.value?.trim() || '',
-    neq:        document.getElementById('gps_neq')?.value?.trim() || '',
-    tps:        document.getElementById('gps_tps')?.value?.trim() || '',
-    tvq:        document.getElementById('gps_tvq')?.value?.trim() || '',
-    ccq:        document.getElementById('gps_ccq')?.value?.trim() || '',
-    insurance:  document.getElementById('gps_insurance')?.value?.trim() || '',
-    validDays:  parseInt(document.getElementById('gps_validdays')?.value) || 30,
-    website:    document.getElementById('gps_website')?.value?.trim() || '',
-  };
-  window.gpSaveSettings(s);
-  var ok = document.getElementById('gpSettingsSaved');
-  if(ok){ ok.style.display='block'; setTimeout(()=>ok.style.display='none',3000); }
-  // Déclenche un sync Firebase
-  if(typeof _gpSaveToCloud === 'function') {
-    clearTimeout(window._gpSyncTimer);
-    window._gpSyncTimer = setTimeout(_gpSaveToCloud, 1000);
-  }
-};
-
-// ── Alertes devis expirés dans le dashboard ──────────────────────
-function gpInjectExpiryAlerts(){
-  var alertBox = document.getElementById('gpExpiryAlerts');
-  if(!alertBox) return;
-  var quotes = (typeof isolationQuotes !== 'undefined' ? isolationQuotes : [])
-    .concat(typeof constructionJobs !== 'undefined' ? constructionJobs : []);
-  var expiring = [], expired = [];
-  quotes.forEach(function(q){
-    if(!['Brouillon','Envoyé'].includes(q.status||'')) return;
-    var days = window.gpDaysUntilExpiry(q);
-    if(days === null) return;
-    if(days < 0) expired.push({q:q, days:days});
-    else if(days <= 7) expiring.push({q:q, days:days});
-  });
-  var html = '';
-  expired.forEach(function(x){
-    html += '<div style="padding:10px 14px;border-radius:14px;background:rgba(255,92,92,.10);border:1px solid rgba(255,92,92,.25);margin-bottom:8px;font-size:13px">' +
-      '<span style="color:#ffb3b3;font-weight:900">⚠ Devis expiré</span> — ' +
-      (x.q.clientName||x.q.client||'Client') + ' · ' +
-      'Expiré depuis ' + Math.abs(x.days) + ' jour(s)' +
-      '</div>';
-  });
-  expiring.forEach(function(x){
-    html += '<div style="padding:10px 14px;border-radius:14px;background:rgba(255,204,102,.10);border:1px solid rgba(255,204,102,.25);margin-bottom:8px;font-size:13px">' +
-      '<span style="color:#ffcc66;font-weight:900">⏰ Expire bientôt</span> — ' +
-      (x.q.clientName||x.q.client||'Client') + ' · ' +
-      'Expire dans ' + x.days + ' jour(s)' +
-      '</div>';
-  });
-  alertBox.innerHTML = html;
-  alertBox.style.display = html ? 'block' : 'none';
-}
-
-// ── Bloc numéros légaux pour les pieds de page PDF ───────────────
-window.gpLegalFooter = function(){
-  var s = window.gpGetSettings ? window.gpGetSettings() : {};
-  var parts = [];
-  if(s.rbq) parts.push('RBQ : ' + s.rbq);
-  if(s.tps) parts.push('TPS : ' + s.tps);
-  if(s.tvq) parts.push('TVQ : ' + s.tvq);
-  if(s.neq) parts.push('NEQ : ' + s.neq);
-  return parts.length ? '<div style="margin-top:10px;font-size:11px;color:#888;border-top:1px solid #eee;padding-top:8px">' + parts.join(' &nbsp;·&nbsp; ') + '</div>' : '';
-};
-
-// ── Badge "Expiré" sur les devis ─────────────────────────────────
-window.gpExpiryBadge = function(q){
-  if(!q || !q.date) return '';
-  if(!['Brouillon','Envoyé'].includes(q.status||'')) return '';
-  var days = window.gpDaysUntilExpiry(q);
-  if(days === null) return '';
-  if(days < 0) return '<span style="background:rgba(255,92,92,.16);color:#ffb3b3;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:900;margin-left:6px">EXPIRÉ</span>';
-  if(days <= 7) return '<span style="background:rgba(255,204,102,.16);color:#ffcc66;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:900;margin-left:6px">Expire dans '+days+'j</span>';
-  return '';
-};
-
-// ── PWA — manifest dynamique ─────────────────────────────────────
-(function gpInjectPWA(){
-  if(document.querySelector('link[rel="manifest"]')) return;
-  var manifest = {
-    name: 'Groupe Prospective — Gestion',
-    short_name: 'GP Gestion',
-    description: 'Logiciel de gestion Groupe Prospective',
-    start_url: '/',
-    display: 'standalone',
-    background_color: '#070a08',
-    theme_color: '#7ac943',
-    icons: [
-      { src: 'logo.png', sizes: '192x192', type: 'image/png' },
-      { src: 'logo.png', sizes: '512x512', type: 'image/png' }
-    ]
-  };
-  var blob = new Blob([JSON.stringify(manifest)], {type:'application/json'});
-  var url  = URL.createObjectURL(blob);
-  var link = document.createElement('link');
-  link.rel  = 'manifest';
-  link.href = url;
-  document.head.appendChild(link);
-
-  var meta = document.createElement('meta');
-  meta.name = 'theme-color';
-  meta.content = '#7ac943';
-  document.head.appendChild(meta);
-
-  var metaApple = document.createElement('meta');
-  metaApple.name = 'apple-mobile-web-app-capable';
-  metaApple.content = 'yes';
-  document.head.appendChild(metaApple);
-})();
-
-// ── Initialisation au démarrage ──────────────────────────────────
-document.addEventListener('DOMContentLoaded', function(){
-  setTimeout(function(){
-    gpInjectSettingsPanel();
-
-    // Injecter la zone d'alertes expiration dans le dashboard
-    var dash = document.getElementById('dashboard');
-    if(dash){
-      var alertDiv = document.createElement('div');
-      alertDiv.id = 'gpExpiryAlerts';
-      alertDiv.style.marginBottom = '14px';
-      dash.prepend(alertDiv);
-    }
-
-    // Vérifier les expirations à chaque rendu du dashboard
-    var origRenderDash = window.renderDashboard;
-    if(typeof origRenderDash === 'function'){
-      window.renderDashboard = function(){
-        origRenderDash.apply(this, arguments);
-        gpInjectExpiryAlerts();
-      };
-    }
-
-    gpInjectExpiryAlerts();
-  }, 600);
-});
-
-</script>
-
-</body>`);
+    w.document.write(`<title>${d.name}</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${d.data}" style="max-width:96vw;max-height:96vh"></body>`);
   }else{
     w.document.write(`<title>${d.name}</title><iframe src="${d.data}" style="border:0;width:100vw;height:100vh"></iframe>`);
   }
@@ -13346,133 +13044,244 @@ window.GP_OFFICIAL_CONTACT = {
   website: "groupeprospective.com"
 };
 
-// ===== FIREBASE INTEGRATION =====
-window._gpCurrentUser = null;
-window._gpSyncEnabled = false;
-window._gpSyncTimer = null;
+// ===== FIREBASE SYNC — VERSION CORRIGÉE =====
+window._gpCurrentUser  = null;
+window._gpSyncEnabled  = false;
+window._gpSyncTimer    = null;
+window._gpRetryTimer   = null;
+window._gpRetryCount   = 0;
 
+/* ── Indicateur visuel ──────────────────────────────────────── */
 function _gpSetSync(state, detail) {
   var badge = document.getElementById('gpSyncBadge');
   var dot   = document.getElementById('gpSyncDot');
   var txt   = document.getElementById('gpSyncTxt');
   if (!dot || !txt) return;
-  if (state==='hidden'){if(badge)badge.style.display='none';return;}
-  if(badge)badge.style.display='flex';
-  if (state==='saving'){
-    dot.style.background='#ffcc66';
-    txt.textContent='Sauvegarde…';
-  } else if(state==='saved'){
-    dot.style.background='#22d18b';
-    txt.textContent='Sauvegardé ✓ '+_gpTimeNow();
-  } else if(state==='error'){
-    dot.style.background='#ff5c5c';
-    txt.textContent = detail ? ('Sync: '+detail) : 'Hors ligne — données locales OK';
-    // Retry automatique dans 30 secondes
-    clearTimeout(window._gpRetryTimer);
-    window._gpRetryTimer = setTimeout(function(){
-      if(window._gpCurrentUser && window._gpSyncEnabled) _gpSaveToCloud();
-    }, 30000);
-  } else if(state==='offline'){
-    dot.style.background='#9da79f';
-    txt.textContent='Mode local';
+
+  // Cacher complètement si non connecté
+  if (state === 'hidden') {
+    if (badge) badge.style.display = 'none';
+    return;
+  }
+  if (badge) badge.style.display = 'flex';
+
+  if (state === 'saving') {
+    dot.style.background = '#ffcc66';
+    txt.textContent = 'Sauvegarde…';
+  } else if (state === 'saved') {
+    dot.style.background = '#22d18b';
+    var now = new Date();
+    var hh = now.getHours().toString().padStart(2,'0');
+    var mm = now.getMinutes().toString().padStart(2,'0');
+    txt.textContent = 'Sauvegardé ✓ ' + hh + ':' + mm;
+    window._gpRetryCount = 0; // Reset compteur d'erreurs
+  } else if (state === 'error') {
+    dot.style.background = '#ff5c5c';
+    var msg = detail || 'Données locales conservées';
+    txt.textContent = '⚠ ' + msg;
+    // Retry automatique (max 3 tentatives, délai croissant)
+    if (window._gpRetryCount < 3) {
+      window._gpRetryCount = (window._gpRetryCount || 0) + 1;
+      var delay = window._gpRetryCount * 20000; // 20s, 40s, 60s
+      clearTimeout(window._gpRetryTimer);
+      window._gpRetryTimer = setTimeout(function() {
+        if (window._gpCurrentUser && window._gpSyncEnabled) {
+          _gpSaveToCloud();
+        }
+      }, delay);
+    }
+  } else if (state === 'offline') {
+    dot.style.background = '#9da79f';
+    txt.textContent = 'Mode local';
   } else {
-    dot.style.background='#9da79f';
-    txt.textContent='Sync';
+    dot.style.background = '#9da79f';
+    txt.textContent = 'Prêt';
   }
 }
-function _gpTimeNow(){
-  var d=new Date();
-  return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+
+/* ── Retirer les photos base64 pour ne pas dépasser 1MB ────── */
+function _gpStripBase64(str) {
+  try {
+    return str.replace(/"data:[^"]{50,}"/g, '"[photo]"');
+  } catch(e) { return str; }
 }
 
+/* ── Sauvegarder vers Firestore ─────────────────────────────── */
 function _gpSaveToCloud() {
   if (!window._gpCurrentUser || !window._gpSyncEnabled) return;
   _gpSetSync('saving');
-  var LS2='gp_center_v2_';
-  var keys=['products','clients','materialOrders','isolationQuotes','invoices','constructionJobs','lastBackupDate'];
-  var data={};
-  keys.forEach(function(k){var v=localStorage.getItem(LS2+k);if(v)data[k]=v;});
-  firebase.firestore().collection('users').doc(window._gpCurrentUser.uid)
-    .set({appData:data,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true})
-    .then(function(){_gpSetSync('saved');})
-    .catch(function(e){console.error('Sync error',e);_gpSetSync('error');});
+
+  var LS2 = 'gp_center_v2_';
+  var keys = ['products','clients','materialOrders','isolationQuotes','invoices','constructionJobs','lastBackupDate'];
+  var data = {};
+
+  keys.forEach(function(k) {
+    var v = localStorage.getItem(LS2 + k);
+    if (v) data[k] = _gpStripBase64(v);
+  });
+
+  // Vérifier la taille — Firestore limite à ~1 MB par document
+  var dataStr = JSON.stringify(data);
+  if (dataStr.length > 850000) {
+    // Trop gros : retirer constructionJobs en dernier recours
+    var withoutJobs = Object.assign({}, data);
+    delete withoutJobs.constructionJobs;
+    var withoutJobsStr = JSON.stringify(withoutJobs);
+    if (withoutJobsStr.length <= 850000) {
+      data = withoutJobs;
+      console.warn('[GP Sync] constructionJobs retiré (document trop grand: ' + Math.round(dataStr.length/1024) + ' KB)');
+    } else {
+      // Même sans jobs c'est trop gros — retirer aussi les commandes
+      delete withoutJobs.materialOrders;
+      data = withoutJobs;
+      console.warn('[GP Sync] materialOrders aussi retiré (document > 850 KB)');
+    }
+  }
+
+  firebase.firestore()
+    .collection('users')
+    .doc(window._gpCurrentUser.uid)
+    .set({ appData: data, updatedAt: new Date().toISOString() }, { merge: true })
+    .then(function() {
+      _gpSetSync('saved');
+    })
+    .catch(function(e) {
+      console.error('[GP Sync] Erreur écriture:', e.code, e.message);
+      var msg;
+      switch(e.code) {
+        case 'permission-denied':
+          msg = 'Règles Firestore à configurer'; break;
+        case 'unavailable':
+        case 'deadline-exceeded':
+          msg = 'Hors ligne — retry auto'; break;
+        case 'resource-exhausted':
+          msg = 'Quota Firebase atteint'; break;
+        case 'invalid-argument':
+          msg = 'Données trop volumineuses'; break;
+        default:
+          msg = e.code || 'Erreur réseau';
+      }
+      _gpSetSync('error', msg);
+    });
 }
 
+/* ── Charger depuis Firestore ───────────────────────────────── */
 function _gpLoadFromCloud(uid) {
   _gpSetSync('saving');
-  firebase.firestore().collection('users').doc(uid).get().then(function(doc){
-    if(doc.exists && doc.data().appData){
-      var d=doc.data().appData;
-      var LS2='gp_center_v2_';
-      Object.keys(d).forEach(function(k){localStorage.setItem(LS2+k,d[k]);});
-      if(typeof renderAll==='function'){try{renderAll();}catch(e){}}
-      else if(typeof render==='function'){try{render();}catch(e){}}
-    }
-    _gpSetSync('saved');
-    window._gpSyncEnabled=true;
-  }).catch(function(e){
-    console.error('Load error',e);
-    var msg = e.code==='permission-denied' ? 'Règles Firestore à configurer'
-            : e.code==='unavailable'       ? 'Hors ligne'
-            : 'Erreur réseau';
-    _gpSetSync('error', msg);
-    window._gpSyncEnabled = true; // Continue en mode local
-  });
+
+  firebase.firestore()
+    .collection('users')
+    .doc(uid)
+    .get()
+    .then(function(doc) {
+      if (doc.exists && doc.data() && doc.data().appData) {
+        var d   = doc.data().appData;
+        var LS2 = 'gp_center_v2_';
+        Object.keys(d).forEach(function(k) {
+          if (d[k]) localStorage.setItem(LS2 + k, d[k]);
+        });
+        if (typeof renderAll === 'function') {
+          try { renderAll(); } catch(e) { console.warn('[GP Sync] renderAll:', e); }
+        }
+      }
+      _gpSetSync('saved');
+      window._gpSyncEnabled = true;
+    })
+    .catch(function(e) {
+      console.error('[GP Sync] Erreur lecture:', e.code, e.message);
+      window._gpSyncEnabled = true; // Continuer en mode local
+
+      var msg;
+      switch(e.code) {
+        case 'permission-denied':
+          msg = 'Règles Firestore à configurer';
+          // Afficher un popup d'aide une seule fois
+          if (!window._gpRulesTipShown) {
+            window._gpRulesTipShown = true;
+            setTimeout(function() {
+              if (confirm('⚠ Firestore bloque la synchronisation.\n\nVoulez-vous voir comment configurer les règles ?')) {
+                alert('Dans la console Firebase :\n1. Firestore → Règles\n2. Remplacez par :\n\nrules_version = \'2\'\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /users/{userId}/{document=**} {\n      allow read, write: if request.auth != null && request.auth.uid == userId;\n    }\n  }\n}\n\n3. Cliquez Publier');
+              }
+            }, 1500);
+          }
+          break;
+        case 'unavailable':
+          msg = 'Hors ligne — mode local actif'; break;
+        default:
+          msg = 'Mode local actif';
+      }
+      _gpSetSync('error', msg);
+    });
 }
 
-(function(){
-  // Patch persist()
-  var _orig=window.persist;
-  window.persist=function(){
-    if(_orig)_orig.apply(this,arguments);
-    if(window._gpCurrentUser&&window._gpSyncEnabled){
+/* ── Intercepter persist() pour sync automatique ───────────── */
+(function patchPersist() {
+  var _orig = window.persist;
+  window.persist = function() {
+    if (_orig) _orig.apply(this, arguments);
+    if (window._gpCurrentUser && window._gpSyncEnabled) {
       clearTimeout(window._gpSyncTimer);
-      window._gpSyncTimer=setTimeout(_gpSaveToCloud,1500);
+      window._gpSyncTimer = setTimeout(_gpSaveToCloud, 1500);
     }
   };
-  // Also intercept ALL localStorage.setItem calls with our prefix
-  // This catches constructionJobs and any other direct saves
-  var _origSet=localStorage.setItem.bind(localStorage);
-  localStorage.setItem=function(key,val){
-    _origSet(key,val);
-    if(typeof key==='string' && key.indexOf('gp_center_v2_')===0){
-      if(window._gpCurrentUser&&window._gpSyncEnabled){
+
+  // Intercepter aussi localStorage.setItem (pour constructionJobs)
+  var _origSet = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function(key, val) {
+    _origSet(key, val);
+    if (typeof key === 'string' && key.indexOf('gp_center_v2_') === 0) {
+      if (window._gpCurrentUser && window._gpSyncEnabled) {
         clearTimeout(window._gpSyncTimer);
-        window._gpSyncTimer=setTimeout(_gpSaveToCloud,1500);
+        window._gpSyncTimer = setTimeout(_gpSaveToCloud, 1500);
       }
     }
   };
 })();
 
-window.fbLogin=function(){
-  var email=document.getElementById('gpFbEmail').value.trim();
-  var pass=document.getElementById('gpFbPass').value;
-  var err=document.getElementById('gpFbErr');
-  err.textContent='Connexion en cours…';
-  err.style.color='#9da79f';
-  firebase.auth().signInWithEmailAndPassword(email,pass).catch(function(e){
-    if(e.code==='auth/user-not-found'||e.code==='auth/wrong-password'||e.code==='auth/invalid-credential'){
-      err.textContent='Courriel ou mot de passe incorrect.';
-    }else{err.textContent=e.message;}
-    err.style.color='#ff5c5c';
-  });
+/* ── Connexion ──────────────────────────────────────────────── */
+window.fbLogin = function() {
+  var email = (document.getElementById('gpFbEmail') || {}).value || '';
+  var pass  = (document.getElementById('gpFbPass')  || {}).value || '';
+  var err   =  document.getElementById('gpFbErr');
+  email = email.trim();
+
+  if (!email || !pass) {
+    if (err) { err.textContent = 'Entrez votre courriel et mot de passe.'; err.style.color = '#ffb3b3'; }
+    return;
+  }
+
+  if (err) { err.textContent = 'Connexion en cours…'; err.style.color = '#9da79f'; }
+
+  firebase.auth().signInWithEmailAndPassword(email, pass)
+    .catch(function(e) {
+      var msgs = {
+        'auth/user-not-found':        'Compte introuvable.',
+        'auth/wrong-password':        'Mot de passe incorrect.',
+        'auth/invalid-email':         'Courriel invalide.',
+        'auth/invalid-credential':    'Courriel ou mot de passe incorrect.',
+        'auth/too-many-requests':     'Trop de tentatives — réessayez dans quelques minutes.',
+        'auth/network-request-failed':'Pas de connexion internet.'
+      };
+      if (err) {
+        err.textContent = msgs[e.code] || e.message;
+        err.style.color = '#ff5c5c';
+      }
+    });
 };
 
-window.fbLogout=function(){firebase.auth().signOut();};
+window.fbLogout = function() {
+  firebase.auth().signOut();
+};
 
-document.addEventListener('DOMContentLoaded',function(){
-  var p=document.getElementById('gpFbPass');
-  if(p)p.addEventListener('keydown',function(e){if(e.key==='Enter')window.fbLogin();});
-  var em=document.getElementById('gpFbEmail');
-  if(em)em.addEventListener('keydown',function(e){if(e.key==='Enter')p&&p.focus();});
-});
+/* ── Touche Entrée dans le formulaire ───────────────────────── */
+document.addEventListener('DOMContentLoaded', function() {
+  var passEl  = document.getElementById('gpFbPass');
+  var emailEl = document.getElementById('gpFbEmail');
+  if (passEl)  passEl.addEventListener('keydown',  function(e) { if (e.key === 'Enter') window.fbLogin(); });
+  if (emailEl) emailEl.addEventListener('keydown', function(e) { if (e.key === 'Enter' && passEl) passEl.focus(); });
+});</script>
 
-</script>
-
-<!-- Firebase SDKs -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<!-- Firebase SDKs déplacés dans <head> -->
 
 <!-- Login overlay -->
 <div id="gpLoginOverlay" style="position:fixed;inset:0;z-index:99999;background:rgba(7,10,8,.97);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px)">
@@ -13512,17 +13321,18 @@ document.addEventListener('DOMContentLoaded',function(){
   };
   firebase.initializeApp(firebaseConfig);
 
-  firebase.auth().onAuthStateChanged(function(user){
-    var overlay=document.getElementById('gpLoginOverlay');
-    if(user){
-      window._gpCurrentUser=user;
-      if(overlay)overlay.style.display='none';
+  firebase.auth().onAuthStateChanged(function(user) {
+    var overlay = document.getElementById('gpLoginOverlay');
+    if (user) {
+      window._gpCurrentUser = user;
+      window._gpRetryCount  = 0;
+      if (overlay) overlay.style.display = 'none';
       _gpLoadFromCloud(user.uid);
-    }else{
-      window._gpCurrentUser=null;
-      window._gpSyncEnabled=false;
-      if(overlay)overlay.style.display='flex';
-      _gpSetSync('hidden');
+    } else {
+      window._gpCurrentUser = null;
+      window._gpSyncEnabled = false;
+      if (overlay) overlay.style.display = 'flex';
+      _gpSetSync('hidden'); // Cache le badge quand non connecté
     }
   });
 })();
