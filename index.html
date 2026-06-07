@@ -2351,11 +2351,6 @@ button.gp-fixed-action{
 
 </style>
 
-  <!-- Firebase SDKs -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -2957,8 +2952,20 @@ function setConstructionStatus(jid,status){
 function scheduleConstruction(jid){
   const j=constructionJob(jid);
   if(!j)return;
-  const d=prompt("Date prévue du chantier (AAAA-MM-JJ)",j.scheduled||today());
-  if(d){j.scheduled=d;if(!["Terminé","Facturé"].includes(j.status))j.status="Planifié";persist();}
+  var existing = document.getElementById('gpSchedModal');
+  if(existing) existing.remove();
+  var modal = document.createElement('div');
+  modal.id = 'gpSchedModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `<div style="background:#101612;border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:28px;max-width:380px;width:100%">
+    <h3 style="margin:0 0 16px">📅 Date du chantier</h3>
+    <label style="display:block;color:#9da79f;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Date prévue</label>
+    <input id="gpSchedDate" type="date" value="${j.scheduled||''}" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#f6f8f4;font-size:14px;margin-bottom:18px;box-sizing:border-box">
+    <div style="display:flex;gap:10px">
+      <button onclick="gpConfirmSchedule('${jid}')" style="flex:1;padding:11px;border-radius:12px;border:0;background:#7ac943;color:#07110d;font-weight:900;cursor:pointer">Confirmer</button>
+      <button onclick="document.getElementById('gpSchedModal').remove()" style="padding:11px 18px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:transparent;color:#f6f8f4;cursor:pointer">Annuler</button>
+    </div></div>`;
+  document.body.appendChild(modal);
 }
 function emailConstruction(jid){
   const j=constructionJob(jid), c=constructionCalc(j);
@@ -3146,6 +3153,9 @@ createConstructionJob=function(){
     km:num("cj_km")||0,
     discount:num("cj_discount")||0,
     notes:val("cj_notes"),
+    trackingMode:true,
+    trackingItems:[],
+    payments:[],
     phases,
     deposits
   };
@@ -4039,10 +4049,17 @@ function ensureTrackingEnhancements(j){
 
 function completionPercent(j){
   ensureTrackingEnhancements(j);
-  const total=(j.trackingItems||[]).length;
-  if(!total)return 0;
-  const done=(j.trackingItems||[]).filter(i=>i.status==="Terminé").length;
-  return Math.round((done/total)*100);
+  const items=(j.trackingItems||[]);
+  if(!items.length) return 0;
+  const isDone = s => s==="Terminé" || s==="Complété";
+  // Progression pondérée par budget (si budget > 0), sinon par nombre d'items
+  const totalBudget = items.reduce((s,i)=>s+Number(i.budget||0),0);
+  if(totalBudget > 0){
+    const doneBudget = items.filter(i=>isDone(i.status)).reduce((s,i)=>s+Number(i.budget||0),0);
+    return Math.round((doneBudget/totalBudget)*100);
+  }
+  const done = items.filter(i=>isDone(i.status)).length;
+  return Math.round((done/items.length)*100);
 }
 
 function publicStatusLabel(status){
@@ -4382,7 +4399,7 @@ showClientFollowup=function(jid){
       <h2>Aperçu client — rapport PDF de suivi</h2>
       <div>
         <button onclick="emailClientFollowup(${jid})">Préparer email client</button>
-        <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
+        <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
         <button class="danger" onclick="document.getElementById('clientReportWrap').remove()">Fermer</button>
       </div>
     </div>
@@ -4787,21 +4804,20 @@ function gpImportBackupFile(event){
   reader.readAsText(file);
 }
 function gpBackupPanelHtml(){
-  return `<div class="card backup-panel noprint" style="margin:18px 0">
-    <div class="card-title">
-      <div>
-        <h2>Sauvegarde sécurisée</h2>
-        <p class="muted">Pour OneDrive : clique “Télécharger sauvegarde datée”, puis garde le fichier Groupe Prospective dans ton dossier OneDrive / Groupe Prospective / Sauvegardes.</p>
-        <span class="backup-status">Dernière sauvegarde : ${gpLastBackup || "aucune sauvegarde exportée"}</span>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-        <button onclick="gpDownloadBackup()">Télécharger sauvegarde datée</button>
-        <label class="file-label">Restaurer sauvegarde <input type="file" accept=".json,application/json" style="display:none" onchange="gpImportBackupFile(event)"></label>
-      </div>
+  var sync = window._gpSyncEnabled ?
+    '<div style="padding:10px 14px;border-radius:14px;background:rgba(34,209,139,.10);border:1px solid rgba(34,209,139,.25);margin-bottom:12px"><span style="color:#22d18b;font-weight:900">✅ Vos données sont sauvegardées automatiquement dans le cloud Firebase.</span><br><span class="muted" style="font-size:13px">Chaque modification est synchronisée en temps réel sur tous vos appareils.</span></div>' :
+    '<div style="padding:10px 14px;border-radius:14px;background:rgba(255,204,102,.10);border:1px solid rgba(255,204,102,.25);margin-bottom:12px"><span style="color:#ffcc66;font-weight:900">⚠ Synchronisation en attente.</span><br><span class="muted" style="font-size:13px">Connectez-vous pour activer la sauvegarde cloud.</span></div>';
+  return `<div class="card backup-panel noprint">
+    <h2>💾 Sauvegarde</h2>
+    ${sync}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+      <button class="secondary" onclick="gpDownloadBackup()">⬇ Export local (JSON)</button>
+      <label class="file-label secondary" style="background:rgba(255,255,255,.075);color:var(--text);border:1px solid var(--line)">
+        ⬆ Importer JSON
+        <input type="file" accept=".json,.gprospective" style="display:none" onchange="gpImportBackupFile(event)">
+      </label>
     </div>
-    <div class="backup-warning">
-      Important : tes données restent dans le navigateur. La sauvegarde datée est ta copie de sécurité. Le fichier HTML seul ne contient pas automatiquement tes nouveaux chantiers, photos et factures.
-    </div>
+    <p class="muted" style="margin-top:10px;font-size:12px">L'export local est optionnel — vos données sont déjà dans Firebase.</p>
   </div>`;
 }
 
@@ -4988,41 +5004,7 @@ gpBackupPanelHtml=function(){
 
 /* ===== ENREGISTRER KIT COMPLET : HTML + DONNÉES DANS UN DOSSIER ===== */
 async function gpSaveKitToFolder(){
-  const data = gpSafeBackupData ? gpSafeBackupData() : gpBackupData();
-  const dataContent = JSON.stringify(data,null,2);
-  const stamp = (typeof gpSafeDateStamp==="function" ? gpSafeDateStamp() : gpDateStamp());
-
-  // Le logiciel HTML reste le logiciel. Les données sont dans le fichier .gprospective.
-  const htmlContent = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
-
-  if(!window.showDirectoryPicker){
-    alert("Ton navigateur ne permet pas de choisir un dossier directement. Utilise Microsoft Edge récent, ou utilise les boutons séparés.");
-    return;
-  }
-
-  try{
-    const dir = await window.showDirectoryPicker({mode:"readwrite"});
-
-    const htmlHandle = await dir.getFileHandle("Logiciel Groupe Prospective.html", {create:true});
-    const htmlWritable = await htmlHandle.createWritable();
-    await htmlWritable.write(htmlContent);
-    await htmlWritable.close();
-
-    const dataHandle = await dir.getFileHandle("donnees-groupe-prospective-"+stamp+".gprospective", {create:true});
-    const dataWritable = await dataHandle.createWritable();
-    await dataWritable.write(dataContent);
-    await dataWritable.close();
-
-    gpLastBackup = new Date().toLocaleString("fr-CA");
-    localStorage.setItem(LS+"lastBackupDate",gpLastBackup);
-    gpUnsavedChanges = false;
-    renderAll();
-
-    alert("Kit complet enregistré avec succès dans le dossier choisi.\n\nFichiers créés :\n- Logiciel Groupe Prospective.html\n- donnees-groupe-prospective-"+stamp+".gprospective");
-  }catch(err){
-    if(err && err.name === "AbortError") return;
-    alert("Impossible d'enregistrer le kit complet dans ce dossier.");
-  }
+  alert("Vos données sont automatiquement sauvegardées dans Firebase.\n\nPour un export local optionnel, utilisez le bouton \"Export local (JSON)\" dans le panneau Sauvegarde.");
 }
 
 /* Panneau ajusté : bouton kit complet + données seules */
@@ -6189,7 +6171,7 @@ function showConstructionQuotePdf(jid){
       <h2>Aperçu devis client — PDF</h2>
       <div>
         <button onclick="emailConstructionDevis(${jid})">Préparer email client</button>
-        <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
+        <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
         <button class="danger" onclick="document.getElementById('constructionQuoteWrap').remove()">Fermer</button>
       </div>
     </div>
@@ -6212,7 +6194,7 @@ Vous trouverez ci-joint le devis construction ${j.number}.
 
 Chantier : ${j.site||"-"}
 
-IMPORTANT : avant d’envoyer ce courriel, clique sur “Enregistrer en PDF / Imprimer” dans le logiciel et joins le PDF du devis.
+IMPORTANT : avant d’envoyer ce courriel, clique sur “Imprimer / PDF / Imprimer” dans le logiciel et joins le PDF du devis.
 
 Merci,
 Groupe Prospective
@@ -6354,7 +6336,7 @@ showConstructionQuotePdf=function(jid){
       <h2>Aperçu devis client — PDF</h2>
       <div>
         <button onclick="emailConstructionDevis(${jid})">Préparer email client</button>
-        <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
+        <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
         <button class="danger" onclick="document.getElementById('constructionQuoteWrap').remove()">Fermer</button>
       </div>
     </div>
@@ -6520,7 +6502,7 @@ showConstructionQuotePdf=function(jid){
       </div>
       <div>
         <button onclick="emailConstructionDevis(${jid})">Préparer email client</button>
-        <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
+        <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
         <button class="danger" onclick="document.getElementById('constructionQuoteWrap').remove()">Fermer</button>
       </div>
     </div>
@@ -6549,7 +6531,7 @@ Vous trouverez ci-joint le devis construction ${j.number}.
 
 Chantier : ${j.site||"-"}
 
-IMPORTANT : avant d’envoyer ce courriel, clique sur “Enregistrer en PDF / Imprimer” dans le logiciel et joins le PDF du devis.
+IMPORTANT : avant d’envoyer ce courriel, clique sur “Imprimer / PDF / Imprimer” dans le logiciel et joins le PDF du devis.
 
 Merci,
 Groupe Prospective
@@ -7204,7 +7186,7 @@ showConstructionQuotePdf = function(jid){
       </div>
       <div>
         <button onclick="emailConstructionDevis(${jid})">Préparer email client</button>
-        <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
+        <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
         <button class="danger" onclick="document.getElementById('constructionQuoteWrap').remove()">Fermer</button>
       </div>
     </div>
@@ -7508,7 +7490,7 @@ showConstructionQuotePdf = function(jid){
       </div>
       <div>
         <button onclick="emailConstructionDevis(${jid})">Préparer email client</button>
-        <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
+        <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
         <button class="danger" onclick="document.getElementById('constructionQuoteWrap').remove()">Fermer</button>
       </div>
     </div>
@@ -8607,7 +8589,7 @@ function gpOpenClientFollowupSafe(jid){
         <div class="report-toolbar noprint">
           <h2>Aperçu client — rapport de suivi</h2>
           <div>
-            <button onclick="window.print()">Enregistrer en PDF / Imprimer</button>
+            <button onclick="window.print()">Imprimer / PDF / Imprimer</button>
             <button class="danger" onclick="document.getElementById('clientReportWrap').remove()">Fermer</button>
           </div>
         </div>
@@ -8622,6 +8604,19 @@ function gpOpenClientFollowupSafe(jid){
 }
 
 function gpEditJobSafe(jid){
+  // Priorité : toggleEditConstructionInfo (bouton modifier infos chantier)
+  if(typeof toggleEditConstructionInfo === "function"){
+    // S'assurer que le formulaire est dans le DOM
+    if(!document.getElementById("editConstructionInfo_"+jid)){
+      if(typeof enhanceEditConstructionInfo === "function") enhanceEditConstructionInfo();
+    }
+    const f = document.getElementById("editConstructionInfo_"+jid);
+    if(f){
+      f.classList.toggle("hidden");
+      if(!f.classList.contains("hidden")) f.scrollIntoView({behavior:"smooth",block:"start"});
+      return;
+    }
+  }
   if(typeof toggleEditJob === "function") return toggleEditJob(jid);
   if(typeof openEditConstructionJob === "function") return openEditConstructionJob(jid);
   if(typeof showEditJob === "function") return showEditJob(jid);
@@ -10400,7 +10395,7 @@ setInterval(gpEnsureUnifiedTopToolbar, 1200);
         <h2>Aperçu client — devis isolation</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button onclick="gpPrepareIsolationQuoteEmail(${qid})">Préparer email client</button>
-          <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
+          <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
           <button class="danger" onclick="document.getElementById('gpIsoQuotePreviewWrap')?.remove()">Fermer</button>
         </div>
       </div>
@@ -10429,7 +10424,7 @@ Chantier : ${q.site||"-"}
 Total estimé avec taxes : ${gpIsoMoney(c.total)}
 Dépôt proposé : ${gpIsoMoney(c.deposit)}
 
-IMPORTANT : avant d'envoyer ce courriel, clique sur “Enregistrer en PDF / Imprimer” dans le logiciel et joins le PDF du devis.
+IMPORTANT : avant d'envoyer ce courriel, clique sur “Imprimer / PDF / Imprimer” dans le logiciel et joins le PDF du devis.
 
 Merci,
 Groupe Prospective`
@@ -13044,244 +13039,168 @@ window.GP_OFFICIAL_CONTACT = {
   website: "groupeprospective.com"
 };
 
-// ===== FIREBASE SYNC — VERSION CORRIGÉE =====
-window._gpCurrentUser  = null;
-window._gpSyncEnabled  = false;
-window._gpSyncTimer    = null;
-window._gpRetryTimer   = null;
-window._gpRetryCount   = 0;
+// ===== FIREBASE INTEGRATION =====
+window._gpCurrentUser = null;
+window._gpSyncEnabled = false;
+window._gpSyncTimer = null;
 
-/* ── Indicateur visuel ──────────────────────────────────────── */
 function _gpSetSync(state, detail) {
   var badge = document.getElementById('gpSyncBadge');
   var dot   = document.getElementById('gpSyncDot');
   var txt   = document.getElementById('gpSyncTxt');
   if (!dot || !txt) return;
-
-  // Cacher complètement si non connecté
-  if (state === 'hidden') {
-    if (badge) badge.style.display = 'none';
-    return;
-  }
+  if (state === 'hidden') { if(badge) badge.style.display='none'; return; }
   if (badge) badge.style.display = 'flex';
-
   if (state === 'saving') {
-    dot.style.background = '#ffcc66';
-    txt.textContent = 'Sauvegarde…';
+    dot.style.background='#ffcc66'; txt.textContent='Sauvegarde…';
   } else if (state === 'saved') {
-    dot.style.background = '#22d18b';
-    var now = new Date();
-    var hh = now.getHours().toString().padStart(2,'0');
-    var mm = now.getMinutes().toString().padStart(2,'0');
-    txt.textContent = 'Sauvegardé ✓ ' + hh + ':' + mm;
-    window._gpRetryCount = 0; // Reset compteur d'erreurs
+    dot.style.background='#22d18b';
+    var n=new Date(); txt.textContent='Sauvegardé ✓ '+n.getHours().toString().padStart(2,'0')+':'+n.getMinutes().toString().padStart(2,'0');
+    window._gpRetryCount=0;
   } else if (state === 'error') {
-    dot.style.background = '#ff5c5c';
-    var msg = detail || 'Données locales conservées';
-    txt.textContent = '⚠ ' + msg;
-    // Retry automatique (max 3 tentatives, délai croissant)
-    if (window._gpRetryCount < 3) {
-      window._gpRetryCount = (window._gpRetryCount || 0) + 1;
-      var delay = window._gpRetryCount * 20000; // 20s, 40s, 60s
+    dot.style.background='#ff5c5c';
+    txt.textContent='⚠ '+(detail||'Données locales conservées');
+    window._gpRetryCount=(window._gpRetryCount||0)+1;
+    if(window._gpRetryCount<=3){
       clearTimeout(window._gpRetryTimer);
-      window._gpRetryTimer = setTimeout(function() {
-        if (window._gpCurrentUser && window._gpSyncEnabled) {
-          _gpSaveToCloud();
-        }
-      }, delay);
+      window._gpRetryTimer=setTimeout(function(){if(window._gpCurrentUser&&window._gpSyncEnabled)_gpSaveToCloud();},window._gpRetryCount*20000);
     }
-  } else if (state === 'offline') {
-    dot.style.background = '#9da79f';
-    txt.textContent = 'Mode local';
-  } else {
-    dot.style.background = '#9da79f';
-    txt.textContent = 'Prêt';
-  }
+  } else { dot.style.background='#9da79f'; txt.textContent='Prêt'; }
 }
 
-/* ── Retirer les photos base64 pour ne pas dépasser 1MB ────── */
-function _gpStripBase64(str) {
+function _gpStripBase64(obj) {
+  // Remove base64 image data to keep Firestore document under 1MB
   try {
-    return str.replace(/"data:[^"]{50,}"/g, '"[photo]"');
-  } catch(e) { return str; }
+    var str = typeof obj === 'string' ? obj : JSON.stringify(obj);
+    str = str.replace(/"data:[^"]{20,}"/g, '"[photo]"');
+    return str;
+  } catch(e) { return null; }
 }
 
-/* ── Sauvegarder vers Firestore ─────────────────────────────── */
 function _gpSaveToCloud() {
   if (!window._gpCurrentUser || !window._gpSyncEnabled) return;
   _gpSetSync('saving');
-
-  var LS2 = 'gp_center_v2_';
-  var keys = ['products','clients','materialOrders','isolationQuotes','invoices','constructionJobs','lastBackupDate'];
-  var data = {};
-
-  keys.forEach(function(k) {
-    var v = localStorage.getItem(LS2 + k);
-    if (v) data[k] = _gpStripBase64(v);
+  var LS2='gp_center_v2_';
+  var keys=['products','clients','materialOrders','isolationQuotes','invoices','constructionJobs','lastBackupDate'];
+  var data={};
+  keys.forEach(function(k){
+    var v=localStorage.getItem(LS2+k);
+    if(v) data[k]=_gpStripBase64(v);
   });
-
-  // Vérifier la taille — Firestore limite à ~1 MB par document
-  var dataStr = JSON.stringify(data);
-  if (dataStr.length > 850000) {
-    // Trop gros : retirer constructionJobs en dernier recours
-    var withoutJobs = Object.assign({}, data);
-    delete withoutJobs.constructionJobs;
-    var withoutJobsStr = JSON.stringify(withoutJobs);
-    if (withoutJobsStr.length <= 850000) {
-      data = withoutJobs;
-      console.warn('[GP Sync] constructionJobs retiré (document trop grand: ' + Math.round(dataStr.length/1024) + ' KB)');
-    } else {
-      // Même sans jobs c'est trop gros — retirer aussi les commandes
-      delete withoutJobs.materialOrders;
-      data = withoutJobs;
-      console.warn('[GP Sync] materialOrders aussi retiré (document > 850 KB)');
-    }
-  }
-
-  firebase.firestore()
-    .collection('users')
-    .doc(window._gpCurrentUser.uid)
-    .set({ appData: data, updatedAt: new Date().toISOString() }, { merge: true })
-    .then(function() {
-      _gpSetSync('saved');
-    })
-    .catch(function(e) {
-      console.error('[GP Sync] Erreur écriture:', e.code, e.message);
-      var msg;
-      switch(e.code) {
-        case 'permission-denied':
-          msg = 'Règles Firestore à configurer'; break;
-        case 'unavailable':
-        case 'deadline-exceeded':
-          msg = 'Hors ligne — retry auto'; break;
-        case 'resource-exhausted':
-          msg = 'Quota Firebase atteint'; break;
-        case 'invalid-argument':
-          msg = 'Données trop volumineuses'; break;
-        default:
-          msg = e.code || 'Erreur réseau';
-      }
-      _gpSetSync('error', msg);
-    });
+  firebase.database().ref('users/'+window._gpCurrentUser.uid)
+    .set({appData:data,updatedAt:new Date().toISOString()})
+    .then(function(){_gpSetSync('saved');})
+    .catch(function(e){
+    console.error('Sync write error',e);
+    var dot=document.getElementById('gpSyncDot');
+    var txt=document.getElementById('gpSyncTxt');
+    if(dot) dot.style.background='#ff5c5c';
+    if(txt) txt.textContent='Err: '+(e.code||e.message||'write');
+  });
 }
 
-/* ── Charger depuis Firestore ───────────────────────────────── */
 function _gpLoadFromCloud(uid) {
   _gpSetSync('saving');
-
-  firebase.firestore()
-    .collection('users')
-    .doc(uid)
-    .get()
-    .then(function(doc) {
-      if (doc.exists && doc.data() && doc.data().appData) {
-        var d   = doc.data().appData;
-        var LS2 = 'gp_center_v2_';
-        Object.keys(d).forEach(function(k) {
-          if (d[k]) localStorage.setItem(LS2 + k, d[k]);
-        });
-        if (typeof renderAll === 'function') {
-          try { renderAll(); } catch(e) { console.warn('[GP Sync] renderAll:', e); }
-        }
+  firebase.database().ref('users/'+uid).once('value')
+    .then(function(snapshot){
+      var d = snapshot.val();
+      if(d && d.appData){
+        var LS2='gp_center_v2_';
+        Object.keys(d.appData).forEach(function(k){localStorage.setItem(LS2+k,d.appData[k]);});
+        if(typeof renderAll==='function'){try{renderAll();}catch(e){}}
+        else if(typeof render==='function'){try{render();}catch(e){}}
       }
       _gpSetSync('saved');
-      window._gpSyncEnabled = true;
-    })
-    .catch(function(e) {
-      console.error('[GP Sync] Erreur lecture:', e.code, e.message);
-      window._gpSyncEnabled = true; // Continuer en mode local
-
-      var msg;
-      switch(e.code) {
-        case 'permission-denied':
-          msg = 'Règles Firestore à configurer';
-          // Afficher un popup d'aide une seule fois
-          if (!window._gpRulesTipShown) {
-            window._gpRulesTipShown = true;
-            setTimeout(function() {
-              if (confirm('⚠ Firestore bloque la synchronisation.\n\nVoulez-vous voir comment configurer les règles ?')) {
-                alert('Dans la console Firebase :\n1. Firestore → Règles\n2. Remplacez par :\n\nrules_version = \'2\'\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /users/{userId}/{document=**} {\n      allow read, write: if request.auth != null && request.auth.uid == userId;\n    }\n  }\n}\n\n3. Cliquez Publier');
-              }
-            }, 1500);
-          }
-          break;
-        case 'unavailable':
-          msg = 'Hors ligne — mode local actif'; break;
-        default:
-          msg = 'Mode local actif';
-      }
-      _gpSetSync('error', msg);
+      window._gpSyncEnabled=true;
+    }).catch(function(e){
+      console.error('Load error',e);
+      window._gpSyncEnabled=true;
+      var txt=document.getElementById('gpSyncTxt');
+      if(txt) txt.textContent='Err: '+(e.code||e.message||'load');
+      _gpSetSync('error');
     });
 }
 
-/* ── Intercepter persist() pour sync automatique ───────────── */
-(function patchPersist() {
-  var _orig = window.persist;
-  window.persist = function() {
-    if (_orig) _orig.apply(this, arguments);
-    if (window._gpCurrentUser && window._gpSyncEnabled) {
+(function(){
+  // Patch persist()
+  var _orig=window.persist;
+  window.persist=function(){
+    if(_orig)_orig.apply(this,arguments);
+    if(window._gpCurrentUser&&window._gpSyncEnabled){
       clearTimeout(window._gpSyncTimer);
-      window._gpSyncTimer = setTimeout(_gpSaveToCloud, 1500);
+      window._gpSyncTimer=setTimeout(_gpSaveToCloud,1500);
     }
   };
-
-  // Intercepter aussi localStorage.setItem (pour constructionJobs)
-  var _origSet = localStorage.setItem.bind(localStorage);
-  localStorage.setItem = function(key, val) {
-    _origSet(key, val);
-    if (typeof key === 'string' && key.indexOf('gp_center_v2_') === 0) {
-      if (window._gpCurrentUser && window._gpSyncEnabled) {
+  // Also intercept ALL localStorage.setItem calls with our prefix
+  // This catches constructionJobs and any other direct saves
+  var _origSet=localStorage.setItem.bind(localStorage);
+  localStorage.setItem=function(key,val){
+    _origSet(key,val);
+    if(typeof key==='string' && key.indexOf('gp_center_v2_')===0){
+      if(window._gpCurrentUser&&window._gpSyncEnabled){
         clearTimeout(window._gpSyncTimer);
-        window._gpSyncTimer = setTimeout(_gpSaveToCloud, 1500);
+        window._gpSyncTimer=setTimeout(_gpSaveToCloud,1500);
       }
     }
   };
 })();
 
-/* ── Connexion ──────────────────────────────────────────────── */
-window.fbLogin = function() {
-  var email = (document.getElementById('gpFbEmail') || {}).value || '';
-  var pass  = (document.getElementById('gpFbPass')  || {}).value || '';
-  var err   =  document.getElementById('gpFbErr');
-  email = email.trim();
-
-  if (!email || !pass) {
-    if (err) { err.textContent = 'Entrez votre courriel et mot de passe.'; err.style.color = '#ffb3b3'; }
-    return;
-  }
-
-  if (err) { err.textContent = 'Connexion en cours…'; err.style.color = '#9da79f'; }
-
-  firebase.auth().signInWithEmailAndPassword(email, pass)
-    .catch(function(e) {
-      var msgs = {
-        'auth/user-not-found':        'Compte introuvable.',
-        'auth/wrong-password':        'Mot de passe incorrect.',
-        'auth/invalid-email':         'Courriel invalide.',
-        'auth/invalid-credential':    'Courriel ou mot de passe incorrect.',
-        'auth/too-many-requests':     'Trop de tentatives — réessayez dans quelques minutes.',
-        'auth/network-request-failed':'Pas de connexion internet.'
-      };
-      if (err) {
-        err.textContent = msgs[e.code] || e.message;
-        err.style.color = '#ff5c5c';
+window.fbLogin=function(){
+  var email=document.getElementById('gpFbEmail').value.trim();
+  var pass=document.getElementById('gpFbPass').value;
+  var err=document.getElementById('gpFbErr');
+  if(!email||!pass){err.textContent='Entrez votre courriel et mot de passe.';err.style.color='#ff5c5c';return;}
+  err.textContent='Connexion en cours…';
+  err.style.color='#9da79f';
+  // Timeout 12s : si Firebase ne répond pas, accès local sans sync cloud
+  var fbTimeout=setTimeout(function(){
+    err.textContent='Firebase injoignable — accès local accordé (sync désactivé).';
+    err.style.color='#ffcc66';
+    var overlay=document.getElementById('gpLoginOverlay');
+    if(overlay)overlay.style.display='none';
+    window._gpCurrentUser={uid:'local',email:email};
+    window._gpSyncEnabled=false;
+  },12000);
+  firebase.auth().signInWithEmailAndPassword(email,pass)
+    .then(function(){clearTimeout(fbTimeout);})
+    .catch(function(e){
+      clearTimeout(fbTimeout);
+      if(e.code==='auth/user-not-found'||e.code==='auth/wrong-password'||e.code==='auth/invalid-credential'){
+        err.textContent='Courriel ou mot de passe incorrect.';
+      }else if(e.code==='auth/too-many-requests'){
+        err.textContent='Trop de tentatives — réessayez dans quelques minutes.';
+      }else if(e.code==='auth/network-request-failed'){
+        err.textContent='Pas de connexion réseau. Vérifiez votre internet.';
+      }else{
+        err.textContent='Erreur: '+e.message;
       }
+      err.style.color='#ff5c5c';
     });
 };
 
-window.fbLogout = function() {
-  firebase.auth().signOut();
-};
+window.fbLogout=function(){firebase.auth().signOut();};
 
-/* ── Touche Entrée dans le formulaire ───────────────────────── */
-document.addEventListener('DOMContentLoaded', function() {
-  var passEl  = document.getElementById('gpFbPass');
-  var emailEl = document.getElementById('gpFbEmail');
-  if (passEl)  passEl.addEventListener('keydown',  function(e) { if (e.key === 'Enter') window.fbLogin(); });
-  if (emailEl) emailEl.addEventListener('keydown', function(e) { if (e.key === 'Enter' && passEl) passEl.focus(); });
-});</script>
+document.addEventListener('DOMContentLoaded',function(){
+  var p=document.getElementById('gpFbPass');
+  if(p)p.addEventListener('keydown',function(e){if(e.key==='Enter')window.fbLogin();});
+  var em=document.getElementById('gpFbEmail');
+  if(em)em.addEventListener('keydown',function(e){if(e.key==='Enter')p&&p.focus();});
+});
 
-<!-- Firebase SDKs déplacés dans <head> -->
+
+function gpConfirmSchedule(jid){
+  const j=constructionJob(Number(jid)||jid);
+  if(!j)return;
+  const d = document.getElementById('gpSchedDate')?.value;
+  if(d){j.scheduled=d;if(!["Terminé","Facturé"].includes(j.status))j.status="Planifié";persist();}
+  document.getElementById('gpSchedModal')?.remove();
+}
+</script>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <!-- Login overlay -->
 <div id="gpLoginOverlay" style="position:fixed;inset:0;z-index:99999;background:rgba(7,10,8,.97);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px)">
@@ -13317,22 +13236,22 @@ document.addEventListener('DOMContentLoaded', function() {
     storageBucket:"groupe-prospective.firebasestorage.app",
     messagingSenderId:"533135416594",
     appId:"1:533135416594:web:6e809b0d2a69a6dfb167cb",
-    measurementId:"G-VE99JD0D3N"
+    measurementId:"G-VE99JD0D3N",
+    databaseURL:"https://groupe-prospective-default-rtdb.firebaseio.com"
   };
   firebase.initializeApp(firebaseConfig);
 
-  firebase.auth().onAuthStateChanged(function(user) {
-    var overlay = document.getElementById('gpLoginOverlay');
-    if (user) {
-      window._gpCurrentUser = user;
-      window._gpRetryCount  = 0;
-      if (overlay) overlay.style.display = 'none';
+  firebase.auth().onAuthStateChanged(function(user){
+    var overlay=document.getElementById('gpLoginOverlay');
+    if(user){
+      window._gpCurrentUser=user;
+      if(overlay)overlay.style.display='none';
       _gpLoadFromCloud(user.uid);
-    } else {
-      window._gpCurrentUser = null;
-      window._gpSyncEnabled = false;
-      if (overlay) overlay.style.display = 'flex';
-      _gpSetSync('hidden'); // Cache le badge quand non connecté
+    }else{
+      window._gpCurrentUser=null;
+      window._gpSyncEnabled=false;
+      if(overlay)overlay.style.display='flex';
+      _gpSetSync('hidden');
     }
   });
 })();
