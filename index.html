@@ -2411,67 +2411,7 @@ function materialSubtotal(o){return (o?.items||[]).reduce((s,it)=>s+Number(it.qt
   w.document.write('<h2>Top 5 clients — '+yrStr+'</h2>');
   if(topCli.length){w.document.write('<table><thead><tr><th>Client</th><th style="text-align:right">Total devis</th></tr></thead><tbody>'+topCli.map(function(e,i){return '<tr><td>'+(i+1)+'. '+e[0]+'</td><td style="text-align:right">'+money(e[1])+'</td></tr>';}).join('')+'</tbody></table>');}
   if(matLow.length){w.document.write('<h2>Stock bas — réapprovisionnement requis</h2><table><thead><tr><th>Produit</th><th>SKU</th><th>Stock</th><th>Minimum</th></tr></thead><tbody>'+matLow.map(function(p){return '<tr><td>'+p.name+'</td><td>'+p.sku+'</td><td style="color:#cc0000;font-weight:700">'+p.stock+' '+p.unit+'</td><td>'+p.minStock+'</td></tr>';}).join('')+'</tbody></table>');}
-  w.document.write('<div style="text-align:center;margin-top:40px"><button onclick="window.print()" style="padding:12px 28px;background:#22d18b;border:none;border-radius:12px;font-weight:900;cursor:pointer;font-size:14px">🖨 Imprimer / Imprimer / PDF</button></div>
-<style id="gpModalStyle">
-.gp-modal-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px}
-.gp-modal-box{background:#101612;border:1px solid rgba(122,201,67,.28);border-radius:22px;padding:28px;max-width:420px;width:100%;box-shadow:0 30px 80px rgba(0,0,0,.5);font-family:Arial,sans-serif}
-.gp-modal-box h3{margin:0 0 18px;color:#f6f8f4;font-size:18px}
-.gp-modal-label{display:block;color:#9da79f;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;margin:0 0 6px}
-.gp-modal-input{width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#f6f8f4;font-size:14px;margin-bottom:14px;box-sizing:border-box;outline:none}
-.gp-modal-input:focus{border-color:rgba(122,201,67,.5)}
-.gp-modal-row{display:flex;gap:10px;margin-top:6px}
-.gp-modal-btn{flex:1;padding:11px;border-radius:12px;border:0;background:#7ac943;color:#07110d;font-weight:900;font-size:14px;cursor:pointer}
-.gp-modal-btn-sec{padding:11px 18px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:transparent;color:#f6f8f4;font-size:14px;cursor:pointer}
-</style>
-
-<script id="gpModalUtils">
-/* Modale inline générique — remplace window.prompt() */
-window.gpModal = function(opts) {
-  // opts: {title, fields:[{id,label,type,value,placeholder}], onConfirm, confirmLabel}
-  var existing = document.getElementById('gpDynModal');
-  if (existing) existing.remove();
-
-  var fieldsHtml = (opts.fields || []).map(function(f) {
-    return '<label class="gp-modal-label" for="' + f.id + '">' + f.label + '</label>' +
-      '<input class="gp-modal-input" id="' + f.id + '" type="' + (f.type||'text') + '" ' +
-      'value="' + (f.value||'') + '" placeholder="' + (f.placeholder||'') + '">';
-  }).join('');
-
-  var overlay = document.createElement('div');
-  overlay.id = 'gpDynModal';
-  overlay.className = 'gp-modal-overlay';
-  overlay.innerHTML =
-    '<div class="gp-modal-box">' +
-      '<h3>' + (opts.title||'') + '</h3>' +
-      fieldsHtml +
-      '<div class="gp-modal-row">' +
-        '<button class="gp-modal-btn" id="gpDynModalConfirm">' + (opts.confirmLabel||'Confirmer') + '</button>' +
-        '<button class="gp-modal-btn-sec" onclick="document.getElementById('gpDynModal').remove()">Annuler</button>' +
-      '</div>' +
-    '</div>';
-
-  document.body.appendChild(overlay);
-
-  var confirmBtn = document.getElementById('gpDynModalConfirm');
-  if (confirmBtn) {
-    confirmBtn.addEventListener('click', function() {
-      var values = {};
-      (opts.fields || []).forEach(function(f) {
-        var el = document.getElementById(f.id);
-        values[f.id] = el ? el.value : '';
-      });
-      overlay.remove();
-      if (opts.onConfirm) opts.onConfirm(values);
-    });
-  }
-
-  // Focus premier champ
-  var first = opts.fields && opts.fields[0] && document.getElementById(opts.fields[0].id);
-  if (first) setTimeout(function(){ first.focus(); }, 50);
-};
-</script>
-
-</body></html>');
+  w.document.write('<div style="text-align:center;margin-top:40px"><button onclick="window.print()" style="padding:12px 28px;background:#22d18b;border:none;border-radius:12px;font-weight:900;cursor:pointer;font-size:14px">🖨 Imprimer / Enregistrer PDF</button></div></body></html>');
   w.document.close();
 }
 function doGlobalSearch(q){var box=document.getElementById('searchResults');if(!q||q.trim().length<2){box.classList.add('hidden');return;}var s=q.toLowerCase().trim(),results=[];clients.forEach(function(c){if((c.name+' '+c.company+' '+c.email+' '+c.phone+' '+c.address).toLowerCase().includes(s))results.push({type:'Client',label:fullName(c),sub:c.phone||c.email||'',action:"showPage('clients',document.querySelectorAll('.nav button')[4])"});});isolationQuotes.forEach(function(q2){if((q2.number+' '+q2.clientName+' '+q2.site+' '+(q2.email||'')).toLowerCase().includes(s))results.push({type:'Devis ISO',label:q2.number+' — '+q2.clientName,sub:q2.site||'',action:"selectedQuoteId="+q2.id+";showPage('isolation',document.querySelectorAll('.nav button')[2])"});});if(typeof constructionJobs!=='undefined')constructionJobs.forEach(function(j){if((j.number+' '+j.clientName+' '+(j.site||'')+' '+(j.email||'')).toLowerCase().includes(s))results.push({type:'Chantier',label:j.number+' — '+j.clientName,sub:j.site||'',action:"selectedConstructionId="+j.id+";showPage('construction',document.querySelectorAll('.nav button')[3])"});});materialOrders.forEach(function(o){var cn=o.clientId?fullName(client(o.clientId)):'';if((o.number+' '+(o.address||'')+' '+cn).toLowerCase().includes(s))results.push({type:'Commande',label:o.number,sub:o.address||cn,action:"showPage('materials',document.querySelectorAll('.nav button')[1])"});});invoices.forEach(function(i){var cn=i.clientId?fullName(client(i.clientId)):'';if((i.number+' '+i.type+' '+cn).toLowerCase().includes(s))results.push({type:'Facture',label:i.number+' — '+i.type,sub:cn,action:"selectedInvoiceId="+i.id+";showPage('billing',document.querySelectorAll('.nav button')[5])"});});if(results.length===0){box.innerHTML='<p style="color:var(--muted);margin:0;padding:4px 8px">Aucun résultat.</p>';}else{box.innerHTML=results.map(function(r){return '<div onclick="'+r.action+';document.getElementById(\'globalSearchInput\').value=\'\';document.getElementById(\'searchResults\').classList.add(\'hidden\')" style="padding:10px 12px;border-radius:12px;cursor:pointer;margin-bottom:4px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06)" onmouseover="this.style.background=\'rgba(122,201,67,.12)\'" onmouseout="this.style.background=\'rgba(255,255,255,.04)\'"><span style="font-size:10px;font-weight:900;text-transform:uppercase;color:var(--green);letter-spacing:.08em">'+r.type+'</span><br><strong style="font-size:13px">'+r.label+'</strong>'+(r.sub?'<br><span style="font-size:12px;color:var(--muted)">'+r.sub+'</span>':'')+'</div>';}).join('');}box.classList.remove('hidden');}document.addEventListener('click',function(e){if(!e.target.closest('#globalSearchInput')&&!e.target.closest('#searchResults')){var b=document.getElementById('searchResults');if(b)b.classList.add('hidden');}});
@@ -10930,7 +10870,7 @@ Groupe Prospective`
       btn.onclick=function(){
         const realBtn=form.querySelector("#btnAddIsoSection");
         if(realBtn) realBtn.click();
-        else alert("Ajout de section disponible — ouvrez le chantier dans l'onglet Construction.");
+        else alert("Ajout de section disponible — ouvrez le chantier dans l\'onglet Construction.");
       };
     }
 
@@ -12354,7 +12294,7 @@ Groupe Prospective`
     window.prepareConstructionReminder=function(jid){
       try{
         if(typeof gpReminderEmail==='function') return gpReminderEmail(jid);
-        alert('Relance disponible — ouvrez le chantier dans l'onglet Construction.');
+        alert('Relance disponible — ouvrez le chantier dans l\'onglet Construction.');
       }catch(e){ alert('Impossible de préparer la relance.'); }
     };
   }
@@ -14153,6 +14093,66 @@ window.GP_OFFICIAL_CONTACT = {
     return d;
   };
 })();
+</script>
+
+
+<style id="gpModalStyle">
+.gp-modal-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px}
+.gp-modal-box{background:#101612;border:1px solid rgba(122,201,67,.28);border-radius:22px;padding:28px;max-width:420px;width:100%;box-shadow:0 30px 80px rgba(0,0,0,.5);font-family:Arial,sans-serif}
+.gp-modal-box h3{margin:0 0 18px;color:#f6f8f4;font-size:18px}
+.gp-modal-label{display:block;color:#9da79f;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;margin:0 0 6px}
+.gp-modal-input{width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#f6f8f4;font-size:14px;margin-bottom:14px;box-sizing:border-box;outline:none}
+.gp-modal-input:focus{border-color:rgba(122,201,67,.5)}
+.gp-modal-row{display:flex;gap:10px;margin-top:6px}
+.gp-modal-btn{flex:1;padding:11px;border-radius:12px;border:0;background:#7ac943;color:#07110d;font-weight:900;font-size:14px;cursor:pointer}
+.gp-modal-btn-sec{padding:11px 18px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:transparent;color:#f6f8f4;font-size:14px;cursor:pointer}
+</style>
+
+<script id="gpModalUtils">
+/* Modale inline générique — remplace window.prompt() */
+window.gpModal = function(opts) {
+  // opts: {title, fields:[{id,label,type,value,placeholder}], onConfirm, confirmLabel}
+  var existing = document.getElementById('gpDynModal');
+  if (existing) existing.remove();
+
+  var fieldsHtml = (opts.fields || []).map(function(f) {
+    return '<label class="gp-modal-label" for="' + f.id + '">' + f.label + '</label>' +
+      '<input class="gp-modal-input" id="' + f.id + '" type="' + (f.type||'text') + '" ' +
+      'value="' + (f.value||'') + '" placeholder="' + (f.placeholder||'') + '">';
+  }).join('');
+
+  var overlay = document.createElement('div');
+  overlay.id = 'gpDynModal';
+  overlay.className = 'gp-modal-overlay';
+  overlay.innerHTML =
+    '<div class="gp-modal-box">' +
+      '<h3>' + (opts.title||'') + '</h3>' +
+      fieldsHtml +
+      '<div class="gp-modal-row">' +
+        '<button class="gp-modal-btn" id="gpDynModalConfirm">' + (opts.confirmLabel||'Confirmer') + '</button>' +
+        '<button class="gp-modal-btn-sec" onclick="document.getElementById(\'gpDynModal\').remove()">Annuler</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(overlay);
+
+  var confirmBtn = document.getElementById('gpDynModalConfirm');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', function() {
+      var values = {};
+      (opts.fields || []).forEach(function(f) {
+        var el = document.getElementById(f.id);
+        values[f.id] = el ? el.value : '';
+      });
+      overlay.remove();
+      if (opts.onConfirm) opts.onConfirm(values);
+    });
+  }
+
+  // Focus premier champ
+  var first = opts.fields && opts.fields[0] && document.getElementById(opts.fields[0].id);
+  if (first) setTimeout(function(){ first.focus(); }, 50);
+};
 </script>
 
 </body>

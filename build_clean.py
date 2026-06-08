@@ -43,7 +43,7 @@ if old_cloud in html:
 # ═══════════════════════════════════════════════════════════════════
 stub_replacements = [
     ("non disponible dans cette version",
-     "disponible — ouvrez le chantier dans l'onglet Construction"),
+     "disponible — ouvrez le chantier dans l\\'onglet Construction"),
 ]
 for old_msg, new_msg in stub_replacements:
     count = html.count(old_msg)
@@ -94,7 +94,7 @@ window.gpModal = function(opts) {
       fieldsHtml +
       '<div class="gp-modal-row">' +
         '<button class="gp-modal-btn" id="gpDynModalConfirm">' + (opts.confirmLabel||'Confirmer') + '</button>' +
-        '<button class="gp-modal-btn-sec" onclick="document.getElementById(\'gpDynModal\').remove()">Annuler</button>' +
+        '<button class="gp-modal-btn-sec" onclick="document.getElementById(\\'gpDynModal\\').remove()">Annuler</button>' +
       '</div>' +
     '</div>';
 
@@ -176,9 +176,11 @@ pdf_renames = [
     ('Télécharger PDF',    'Imprimer / PDF'),
 ]
 for old_lbl, new_lbl in pdf_renames:
-    count = html.count(old_lbl)
+    # Use negative lookbehind to avoid double-replacing "Imprimer / Enregistrer PDF"
+    pattern = r'(?<!Imprimer / )' + re.escape(old_lbl)
+    count = len(re.findall(pattern, html))
     if count:
-        html = html.replace(old_lbl, new_lbl)
+        html = re.sub(pattern, new_lbl, html)
         fixes.append(f'"{old_lbl}" → "{new_lbl}" ({count}x)')
 
 # ═══════════════════════════════════════════════════════════════════
@@ -264,7 +266,10 @@ if 'apple-mobile-web-app-capable' not in html:
 # 8. INJECTION CSS MODALE + utilitaires avant </body>
 # ═══════════════════════════════════════════════════════════════════
 if 'gpModalStyle' not in html:
-    html = html.replace('</body>', MODAL_CSS + MODAL_UTILS + '\n</body>', 1)
+    # Use rfind to target the REAL </body>, not the ones inside document.write() strings
+    last_body = html.rfind('</body>')
+    if last_body != -1:
+        html = html[:last_body] + MODAL_CSS + MODAL_UTILS + '\n</body>' + html[last_body+7:]
     fixes.append('CSS + utilitaire gpModal() injectés')
 
 # ═══════════════════════════════════════════════════════════════════
