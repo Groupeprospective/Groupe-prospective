@@ -2349,6 +2349,13 @@ button.gp-fixed-action{
   min-height:88px;
 }
 
+
+/* Hide number input spinners */
+input.model-si-qty::-webkit-outer-spin-button,
+input.model-si-qty::-webkit-inner-spin-button,
+input.model-si-up::-webkit-outer-spin-button,
+input.model-si-up::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+input.model-si-qty, input.model-si-up { -moz-appearance:textfield; appearance:textfield; }
 </style>
 
   <meta name="mobile-web-app-capable" content="yes">
@@ -3015,6 +3022,12 @@ function renderConstruction(){
       <p class="muted" style="margin-top:12px">Taux par défaut : main-d'oeuvre 90 $/h, kilométrage 0,75 $/km. Les deux sont modifiables.</p>
     </div>
 
+    <div class="card soft" style="margin-top:12px;padding:14px">
+      <h3 style="margin:0 0 8px">📋 Charger un devis existant</h3>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">Crée automatiquement un chantier avec postes et sous-étapes depuis un devis.</p>
+      <button class="secondary" onclick="load2026124GestionMBI()">Charger 2026-124 — Gestion MBI (Phase 2 Granby)</button>
+    </div>
+
     <div class="split">
       <div class="card">
         ${constructionJobs.map(x=>`<button class="listbtn ${j&&j.id===x.id?'active':''}" onclick="selectedConstructionId=${x.id};renderConstruction()"><strong>${x.number}</strong><br>${x.clientName}<br>${badge(x.status)}<br><span class="amount">${money(constructionCalc(x).total)}</span><br><span class="muted">${x.site}</span></button>`).join("") || "<p>Aucun chantier construction.</p>"}
@@ -3092,21 +3105,23 @@ function setConstructionStatus(jid,status){
   if(j){j.status=status;persist();}
 }
 function scheduleConstruction(jid){
-  var j=constructionJob(jid); if(!j)return;
-  gpModal({
-    title:'📅 Planifier le chantier',
-    fields:[{id:'gp_sched_date',label:'Date prévue',type:'date',value:j.scheduled||''}],
-    confirmLabel:'Confirmer',
-    onConfirm:function(v){
-      if(v.gp_sched_date){
-        j.scheduled=v.gp_sched_date;
-        if(!['Terminé','Facturé'].includes(j.status)) j.status='Planifié';
-        persist();
-      }
-    }
-  });
+  const j=constructionJob(jid);
+  if(!j)return;
+  var existing = document.getElementById('gpSchedModal');
+  if(existing) existing.remove();
+  var modal = document.createElement('div');
+  modal.id = 'gpSchedModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `<div style="background:#101612;border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:28px;max-width:380px;width:100%">
+    <h3 style="margin:0 0 16px">📅 Date du chantier</h3>
+    <label style="display:block;color:#9da79f;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Date prévue</label>
+    <input id="gpSchedDate" type="date" value="${j.scheduled||''}" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#f6f8f4;font-size:14px;margin-bottom:18px;box-sizing:border-box">
+    <div style="display:flex;gap:10px">
+      <button onclick="gpConfirmSchedule('${jid}')" style="flex:1;padding:11px;border-radius:12px;border:0;background:#7ac943;color:#07110d;font-weight:900;cursor:pointer">Confirmer</button>
+      <button onclick="document.getElementById('gpSchedModal').remove()" style="padding:11px 18px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:transparent;color:#f6f8f4;cursor:pointer">Annuler</button>
+    </div></div>`;
+  document.body.appendChild(modal);
 }
-
 function emailConstruction(jid){
   const j=constructionJob(jid), c=constructionCalc(j);
   if(!j)return;
@@ -3895,7 +3910,16 @@ setTimeout(()=>{ if(typeof constructionJobs!=="undefined" && !constructionJobs.f
 /* ===== CONSTRUCTION — SUIVI DE CHANTIER PAR PHASES / MODÈLE SOREL ===== */
 
 function trackingItem(desc, detail, phase, budget, actual=0, status="À faire", type="Inclus"){
-  return {desc, detail, phase, budget:Number(budget||0), actual:Number(actual||0), status, type};
+  return {desc, detail, phase, budget:Number(budget||0), actual:Number(actual||0), status, type, subItems:[]};
+}
+function trackingSubItem(desc, qty=0, unit='', unitPrice=0, amount=0, supplied=false){
+  const calcAmt=(qty>0 && unitPrice!==0) ? qty*unitPrice : Number(amount||0);
+  return {desc:desc||'', qty:Number(qty||0), unit:unit||'', unitPrice:Number(unitPrice||0), amount:calcAmt, supplied:!!supplied};
+}
+function itemBudgetCalc(it){
+  if(it.subItems && it.subItems.length>0)
+    return it.subItems.reduce((s,si)=>s+Number(si.amount||0),0);
+  return Number(it.budget||0);
 }
 function normalizeTrackingJob(j){
   if(!j)return j;
@@ -3906,9 +3930,9 @@ function normalizeTrackingJob(j){
 function trackingCalc(j){
   if(!j)return {budget:0,actual:0,variance:0,extras:0,paid:0,balance:0,tax:0,total:0};
   normalizeTrackingJob(j);
-  const budget=(j.trackingItems||[]).reduce((s,i)=>s+Number(i.budget||0),0);
+  const budget=(j.trackingItems||[]).reduce((s,i)=>s+itemBudgetCalc(i),0);
   const actual=(j.trackingItems||[]).reduce((s,i)=>s+Number(i.actual||0),0);
-  const extras=(j.trackingItems||[]).filter(i=>i.type==="Extra").reduce((s,i)=>s+Number(i.budget||0),0);
+  const extras=(j.trackingItems||[]).filter(i=>i.type==="Extra").reduce((s,i)=>s+itemBudgetCalc(i),0);
   const paid=(j.payments||[]).reduce((s,p)=>s+Number(p.amount||0),0);
   const tax=budget*TAX;
   const total=budget+tax;
@@ -3985,6 +4009,706 @@ function loadSorelCharlotteModel(){
   persist();
 }
 
+/* ===== MODÈLE 2026-124 GESTION MBI — Phase 2 Granby ===== */
+function load2026124GestionMBI(){
+  if(!confirm('Charger le chantier 2026-124 (Gestion MBI) depuis le devis PDF?\nCela va créer ou remplacer ce chantier dans ta liste.')) return;
+  const JID=202612400124;
+  if(typeof constructionJobs!=='undefined'){
+    constructionJobs=constructionJobs.filter(j=>j.id!==JID && j.number!=='2026-124');
+  }
+  function si(desc,qty,unit,unitPrice,amount,supplied,isRabais){
+    return {desc:desc||'',qty:Number(qty||0),unit:unit||'',unitPrice:Number(unitPrice||0),amount:Number(amount||0),supplied:!!supplied,isRabais:!!isRabais};
+  }
+  function item(desc,phase,type,subs){
+    return {desc,detail:'',phase,budget:0,actual:0,status:'À faire',type:type||'Inclus',subItems:subs||[]};
+  }
+  const job={
+    id:JID, number:'2026-124', clientId:null,
+    clientName:'Gestion MBI s.e.n.c', email:'', phone:'',
+    site:'1465 rue des bouleaux, St-Cyr-de-Wendover',
+    status:'En cours', priority:'Haute',
+    date:'2026-04-21', startDate:'2026-04-21', endDate:'',
+    notes:'Rénovation du bureau selon le plan reçu – Phase 2. Superficie : 1319 pc² planchers. Durée estimée : 2 à 3 semaines.',
+    trackingMode:true, payments:[], phases:[], deposits:[],
+    trackingItems:[
+      item('1. Travaux préparatoires','Phase 1','Inclus',[
+        si('Démolition selon le plan (aspiration négative pour les poussières)',0,'',0,2250,false,false),
+        si('Gestion des déchets (remorque ou conteneur)',0,'',0,0,false,false),
+        si('Rabais',0,'',0,-1000,false,true)
+      ]),
+      item('2. Division et structure','Phase 1','Inclus',[
+        si('Structure des divisions de bureaux',0,'',0,4255,false,false),
+        si('Division avec drop de plafond et corniche (BOIS ET ACIER)',0,'',0,0,false,false),
+        si('Rabais',0,'',0,-3000,false,true)
+      ]),
+      item('3. Gypse et plâtre','Phase 2','Inclus',[
+        si('Installation gypse incluant scellant acoustique (1,25 $/pc)',2364,'pc²',1.25,2955,false,false),
+        si('Rabais de 0,15 $/pc',2364,'pc²',-0.15,-354.60,false,true),
+        si('Coût gypse et plâtre — matériaux (15% majoration)',0,'',0,2246.64,false,false),
+        si('Installation coins de fer finition 3 couches matériaux inclus (8 $/pi lin)',286.5,'pi lin',0,1290.66,false,false),
+        si('Finition du plâtre — 3 bandes et sablage (1,25 $/pc)',2364,'pc²',1.25,2955,false,false),
+        si('Skim coat plafond abaissé cuisine (264 pi²)',264,'pi²',0,594,false,false)
+      ]),
+      item('4. Portes intérieures et moulurage','Phase 2','Inclus',[
+        si('Plinthes (baseboards) — fourniture et installation (5,75 $/pi lin)',283,'pi lin',5.75,1627.25,false,false),
+        si('Cadrages portes et fenêtres — fourniture et installation (4,25 $/pi lin)',162,'pi lin',4.25,688.50,false,false),
+        si('Installation 3 portes Masonite (1× 32"×80" + 2× 30"×80" garde-robe)',3,'portes',0,932.12,false,false),
+        si('Finition — bouchage, calfeutrage, préparation peinture',0,'',0,135.26,false,false)
+      ]),
+      item('4.1 Peinture','Phase 2','Inclus',[
+        si('Peinture sous-couche au gun (0,55 $/pc)',6696,'pc²',0.55,3682.80,false,false),
+        si('Rabais de 0,10 $/pc',6696,'pc²',-0.10,-669.60,false,true),
+        si('Peinture blanc naturel au gun et rouleau (0,95 $/pc)',5571,'pc²',0.95,5292.45,false,false),
+        si('Peinture chacoal mur (1,55 $/pc) — à voir selon surfaces choisies',1125,'pc²',1.55,1743.75,false,false),
+        si('Peinture finition noir portes intérieures (apprêt fourni) × 3',3,'portes',0,350,false,false)
+      ]),
+      item('5. Finition des planchers','Phase 3','Inclus',[
+        si('Redressement plancher — autonivelant et primer (3,25 $/pc)',615,'pc²',3.25,1998.75,false,false)
+      ]),
+      item('5.1 Fourniture céramique','Phase 3','Inclus',[
+        si('Céramique commerciale 24×24 Lara Gris Mat (4,79 $/pc — 12% perte incluse)',1162,'pc²',0,5580.35,false,false)
+      ]),
+      item('5.2 Matériaux et accessoires céramique','Phase 3','Inclus',[
+        si('Ciment-colle modifié All-Set 50 lb',0,'',0,1280,false,false),
+        si('Système de nivellement',0,'',0,105,false,false),
+        si('Coulis assorti à la céramique choisie',0,'',0,160,false,false)
+      ]),
+      item('5.3 Installation céramique','Phase 3','Inclus',[
+        si('Main-d\'œuvre complète — pose, coulis, nettoyage final (8,00 $/pc)',1162,'pc²',8,9296,false,false)
+      ]),
+      item('6. Plafond suspendu Noir','Phase 3','Inclus',[
+        si('T-bar + tuiles acoustiques 2×2 — main-d\'œuvre et matériaux (10,00 $/pc)',577,'pc²',10,5770,false,false),
+        si('Rabais — mêmes supports à peinturer dans 2 bureaux sur 4',0,'',0,-1238.56,false,true)
+      ]),
+      item('7. Finitions intérieures — panneaux acoustiques','Phase 4','Inclus',[
+        si('Panneau acoustique latte de bois couleur teck 24×109 po (12,32 $/pi² — rabais 1,50 inclus)',364,'pi²',0,3938.48,false,false)
+      ]),
+      item('8. Travaux panneaux de verre (sous-traitance)','Phase 4','Sous-traitant',[
+        si('8.1 Portes coulissantes verre trempé 12mm, 78×110 po (×2)',2,'unités',0,0,false,false),
+        si('8.2 Grosse porte double verre trempé 12mm, 62,5×111 po',1,'unité',0,0,false,false),
+        si('8.3 Petite porte double trophées verre 10mm, 64×20 po',1,'unité',0,0,false,false),
+        si('8.4 Portes et panneaux fixes bureaux 003 et 004, verre 12mm, 56×80 po (×2)',2,'unités',0,0,false,false),
+        si('Coût total sous-traitant — soumission en attente (estimation 13 500–17 500 $)',0,'',0,15523.58,false,false)
+      ])
+    ]
+  };
+  if(typeof constructionJobs!=='undefined') constructionJobs.unshift(job);
+  selectedConstructionId=JID;
+  persist(); renderConstruction();
+  alert('Chantier 2026-124 (Gestion MBI) chargé avec succès!\n\nTu le vois maintenant dans la liste.');
+}
+
+/* ===== CATALOGUE DE POSTES — BIBLIOTHÈQUE ===== */
+const GP_TEMPLATES = {
+
+"1. Ouverture du chantier / dossier client": [
+  {desc:"Informations client",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Adresse et type de chantier",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Date de visite",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Photos avant travaux",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Plans / croquis / mesures",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Documents reçus du client",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Notes et conditions particulières",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+],
+
+"2. Préparation de chantier": [
+  {desc:"Protection des lieux (polyane / plastique)",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Protection des planchers",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Protection des murs existants",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Protection des escaliers",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Déplacement ou protection du mobilier",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Installation d'éclairage temporaire",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Installation chauffage temporaire",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Ventilation temporaire / pression négative",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Mobilisation de chantier",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Déplacement / transport",unit:"km",unitPrice:0.75,qty:0,isRabais:false},
+  {desc:"Livraison des matériaux",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Nettoyage initial",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"3. Démolition / déconstruction": [
+  {desc:"Démolition divisions intérieures",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Démolition gypse",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Démolition plafonds",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Démolition planchers",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Démolition céramique",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Démolition salle de bain",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Démolition cuisine",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Retrait de portes",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Retrait de moulures",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Retrait d'armoires",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Retrait de revêtement extérieur",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Retrait d'isolant existant",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Découpe / ouverture de mur",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Chargement des débris",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Conteneur / remorque",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Frais d'enfouissement",unit:"voyage",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Nettoyage après démolition",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"4. Excavation / terrassement": [
+  {desc:"Excavation générale",unit:"heure",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Excavation pour fondation",unit:"heure",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Excavation pour drain français",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Nivellement du terrain",unit:"heure",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Remblai",unit:"tonne",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Transport et disposition de terre",unit:"voyage",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Pierre nette",unit:"tonne",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Pierre concassée",unit:"tonne",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Géotextile",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Compactage",unit:"heure",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Location machinerie",unit:"jour",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Opérateur de machinerie",unit:"heure",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"5. Fondation / béton": [
+  {desc:"Coffrage",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Armature / acier",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Semelles",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Murs de fondation",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Dalle de béton",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Finition de béton",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Réparation / injection de fissures",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Imperméabilisation",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Drain français",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Membrane drainante",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Isolation extérieure de fondation",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Pompage de béton",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"6. Structure / charpente": [
+  {desc:"Structure de plancher (solives, poutres)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Murs porteurs",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Murs non porteurs",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Charpente de toit / fermes",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Renforcement structural / linteau",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Sous-plancher (OSB / contreplaqué)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Contreventement",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Connecteurs / sabots / ancrages",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Main-d'oeuvre charpente",unit:"heure",unitPrice:90,qty:0,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"7. Division intérieure": [
+  {desc:"Traçage des divisions",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Montants de bois (2x4 / 2x6)",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Montants d'acier (métal studs)",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Renforts pour portes",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Renforts pour armoires / télévision",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Drop de plafond",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Corniche de plafond",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Division coupe-feu",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Scellant acoustique (périmètre)",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Laine insonorisante dans divisions",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"8. Toiture": [
+  {desc:"Démolition toiture existante",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Réparation pontage (OSB)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Membrane autocollante (Ice & Water)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Bardeaux d'asphalte",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Tôle / membrane TPO ou EPDM",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Solins",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Ventilation de toit / évents",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Fascia",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Soffite",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Gouttières",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Isolation entretoit",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"9. Portes et fenêtres extérieures": [
+  {desc:"Installation fenêtre (fourniture incluse)",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Installation porte extérieure (fourniture incluse)",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Installation porte patio",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Isolation autour des ouvertures",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Membrane autour fenêtres / solin",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Capping aluminium",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Calfeutrage extérieur",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Finition intérieure des ouvertures",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"10. Isolation": [
+  {desc:"Uréthane giclé murs (R6/po)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Uréthane giclé solive de rive",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Uréthane giclé plafond",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Uréthane giclé fondation",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Laine en matelas (R14)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Laine en matelas (R20)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Cellulose / laine soufflée",unit:"sac",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Pare-vapeur",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Préparation avant isolation (protection)",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Coupe d'excédent d'uréthane",unit:"heure",unitPrice:90,qty:0,isRabais:false},
+  {desc:"Nettoyage après giclage",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais",unit:"pc²",unitPrice:0,qty:0,isRabais:true},
+],
+
+"11. Électricité": [
+  {desc:"Rough électrique (filage, boîtes, circuits)",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Tableau électrique / sous-panneau",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Prises et interrupteurs",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Éclairage encastré",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Luminaires — fourniture et installation",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Chauffage électrique / plinthes",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Ventilateur de salle de bain",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Détecteurs fumée / CO",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Thermostats intelligents",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Câblage réseau / données (CAT6)",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Finition électrique complète",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"12. Plomberie": [
+  {desc:"Rough plomberie (alimentation et évacuation)",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Remplacement tuyauterie principale",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Chauffe-eau — fourniture et installation",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Pompe de puisard",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Drain de plancher",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Finition plomberie (installation des appareils)",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Robinetterie — fourniture et installation",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Évier — fourniture et installation",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Test d'étanchéité",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"13. Ventilation / chauffage / climatisation": [
+  {desc:"Système de ventilation VRC/VRE — fourniture et installation",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Conduits de ventilation",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Grilles et diffuseurs",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Thermopompe / climatiseur",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Fournaise / chaudière",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Hotte de cuisine",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Sortie extérieure",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Nettoyage conduits existants",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Mise en marche / test",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"14. Gypse et plâtre": [
+  {desc:"Fourniture du gypse (matériaux + 15% majoration)",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Installation gypse régulier",unit:"pc²",unitPrice:1.25,qty:0,isRabais:false},
+  {desc:"Installation gypse hydrofuge (salle de bain / cuisine)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Installation gypse coupe-feu 5/8",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Double couche gypse acoustique",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Vis / colle / accessoires",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Coins de fer — installation 3 couches",unit:"pi lin",unitPrice:8,qty:0,isRabais:false},
+  {desc:"Coins flexibles (courbes)",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"3 bandes et sablage",unit:"pc²",unitPrice:1.25,qty:0,isRabais:false},
+  {desc:"Skim coat murs",unit:"pc²",unitPrice:2.25,qty:0,isRabais:false},
+  {desc:"Skim coat plafond",unit:"pc²",unitPrice:2.25,qty:0,isRabais:false},
+  {desc:"Réparations mineures / retouches",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Nettoyage après sablage",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais installation gypse",unit:"pc²",unitPrice:0,qty:0,isRabais:true},
+],
+
+"15. Peinture": [
+  {desc:"Préparation des surfaces",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Protection avant peinture",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Apprêt / sous-couche au gun",unit:"pc²",unitPrice:0.55,qty:0,isRabais:false},
+  {desc:"Peinture plafond",unit:"pc²",unitPrice:0.85,qty:0,isRabais:false},
+  {desc:"Peinture murs — blanc naturel (gun + rouleau)",unit:"pc²",unitPrice:0.95,qty:0,isRabais:false},
+  {desc:"Peinture murs — couleur foncée / charcoal",unit:"pc²",unitPrice:1.55,qty:0,isRabais:false},
+  {desc:"Peinture portes intérieures (apprêt fourni)",unit:"portes",unitPrice:116.67,qty:0,isRabais:false},
+  {desc:"Peinture moulures et plinthes",unit:"pi lin",unitPrice:1.50,qty:0,isRabais:false},
+  {desc:"Peinture extérieure",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Retouches finales",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Nettoyage après peinture",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais sous-couche",unit:"pc²",unitPrice:0,qty:0,isRabais:true},
+],
+
+"16. Portes intérieures et moulurage": [
+  {desc:"Installation portes intérieures Masonite (fourniture + ajustement)",unit:"portes",unitPrice:310.71,qty:0,isRabais:false},
+  {desc:"Poignées et pentures",unit:"portes",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Cadrages de portes et fenêtres",unit:"pi lin",unitPrice:4.25,qty:0,isRabais:false},
+  {desc:"Plinthes (baseboards)",unit:"pi lin",unitPrice:5.75,qty:0,isRabais:false},
+  {desc:"Moulures décoratives / ogee",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Bouchage trous et calfeutrage joints",unit:"forfait",unitPrice:135.26,qty:1,isRabais:false},
+  {desc:"Sablage moulures",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"17. Planchers": [
+  {desc:"Démolition plancher existant",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Réparation sous-plancher",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Autonivelant et primer d'adhérence",unit:"pc²",unitPrice:3.25,qty:0,isRabais:false},
+  {desc:"Membrane de désolidarisation",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Sous-couche acoustique",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Plancher vinyle de luxe LVP — fourniture",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Plancher vinyle de luxe LVP — installation",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Plancher bois franc — fourniture",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Plancher bois franc — installation et sablage",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Teinture et vernis (3 couches)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Plancher flottant — installation",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Transitions et nez de marche",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Nettoyage final plancher",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais préparation",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"18. Céramique": [
+  {desc:"Préparation surface",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Membrane de désolidarisation",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Membrane d'étanchéité (douche)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Fourniture céramique (12% perte incluse)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Ciment-colle modifié (All-Set)",unit:"sac",unitPrice:25,qty:0,isRabais:false},
+  {desc:"Système de nivellement",unit:"forfait",unitPrice:105,qty:1,isRabais:false},
+  {desc:"Main-d'oeuvre pose céramique",unit:"pc²",unitPrice:8,qty:0,isRabais:false},
+  {desc:"Coulis (assorti à la céramique choisie)",unit:"sac",unitPrice:30,qty:0,isRabais:false},
+  {desc:"Silicone — joints de dilatation",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Profilés de finition",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Scellant coulis",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Nettoyage final",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"19. Plafond suspendu / décoratif": [
+  {desc:"Traçage plafond",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Structure T-bar + tuiles acoustiques 2x2",unit:"pc²",unitPrice:10,qty:0,isRabais:false},
+  {desc:"Structure T-bar + tuiles 2x4",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Peinture structure existante",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Contour mural",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Coupe et ajustement",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais — supports existants à réutiliser",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"20. Panneaux décoratifs / acoustiques": [
+  {desc:"Préparation surface / forence",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Panneaux acoustiques en latte de bois",unit:"pi²",unitPrice:12.32,qty:0,isRabais:false},
+  {desc:"Panneaux MDF décorés",unit:"pi²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Panneaux muraux décoratifs",unit:"pi²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Mousse acoustique",unit:"pi²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Transport des panneaux",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Finition des coins",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"21. Armoires / mobilier intégré": [
+  {desc:"Installation armoires de cuisine",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Comptoirs — fourniture et installation",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Îlot de cuisine",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Dosseret (céramique ou autre)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Garde-robes — tablettes et tringles",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Caissons de rangement sur mesure",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Portes de garde-robe (coulissantes)",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Ajustement portes et poignées",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Calfeutrage et finition",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"22. Salle de bain": [
+  {desc:"Démolition salle de bain",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rough plomberie salle de bain",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rough électrique salle de bain",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Membrane d'étanchéité douche",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Bain / douche — fourniture et installation",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Toilette — fourniture et installation",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Vanité / lavabo / robinetterie",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Ventilateur de salle de bain",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Miroir et accessoires",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Verre de douche (porte ou panneau)",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Calfeutrage final",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"23. Cuisine": [
+  {desc:"Démolition cuisine",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rough plomberie cuisine",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rough électrique cuisine",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Armoires — fourniture et installation",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Comptoir — fourniture et installation",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Dosseret",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Évier et robinet — fourniture et installation",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Hotte — fourniture et installation",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Finition électrique cuisine",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Calfeutrage et finition",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"24. Revêtement extérieur": [
+  {desc:"Retrait revêtement existant",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Fourrure et pare-intempéries",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Revêtement vinyle / aluminium",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Revêtement CanExel / fibrociment",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Revêtement acier / bois",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Capping aluminium",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Coins extérieurs",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Solins",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Contours fenêtres",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Fascia et soffite",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Calfeutrage extérieur",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"25. Balcons / patios / escaliers": [
+  {desc:"Démolition balcon existant",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Structure balcon (bois traité / acier)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Poteaux et poutres",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Decking / plancher (composite ou bois)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Fibre de verre / aluminium",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Marches / limon d'escalier",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Garde-corps (métal, verre, câble)",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Rampes intérieures",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Ancrages et connecteurs",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Peinture / teinture",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"26. Garage / remise / annexe": [
+  {desc:"Fondation / dalle garage",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Structure garage (murs, toit)",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Porte de garage — fourniture et installation",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Porte de service",unit:"unités",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Isolation garage",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Gypse garage",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Électricité garage",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Revêtement extérieur garage",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Toiture garage",unit:"pc²",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"27. Sous-traitance": [
+  {desc:"Électricien",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Plombier",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Mécanicien CVC / ventilation",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Céramiste",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Peintre",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Tireur de joints / plâtrier",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Excavation",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Béton",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Toiture",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Verre / cloisons vitrées",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Armoires sur mesure",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Ingénieur / architecte",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Inspection / permis",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais sous-traitant",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"28. Gestion de chantier": [
+  {desc:"Coordination chantier",unit:"heure",unitPrice:90,qty:0,isRabais:false},
+  {desc:"Gestion des sous-traitants",unit:"heure",unitPrice:90,qty:0,isRabais:false},
+  {desc:"Commandes matériaux",unit:"heure",unitPrice:90,qty:0,isRabais:false},
+  {desc:"Prise de mesures / visite",unit:"heure",unitPrice:90,qty:0,isRabais:false},
+  {desc:"Rencontre client",unit:"heure",unitPrice:90,qty:0,isRabais:false},
+  {desc:"Photos de suivi / rapport",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Déplacement / kilométrage",unit:"km",unitPrice:0.75,qty:0,isRabais:false},
+  {desc:"Temps de supervision",unit:"heure",unitPrice:90,qty:0,isRabais:false},
+  {desc:"Urgence / imprévu",unit:"heure",unitPrice:90,qty:0,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"29. Nettoyage": [
+  {desc:"Nettoyage quotidien",unit:"heure",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Nettoyage après démolition",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Nettoyage après plâtre / sablage",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Nettoyage final intérieur complet",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Nettoyage vitres et fenêtres",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Disposition déchets",unit:"voyage",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Protection retirée",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Livraison chantier propre",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"30. Matériaux généraux": [
+  {desc:"Bois",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Gypse",unit:"feuille",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Vis / quincaillerie",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Colle / scellant",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Moulures",unit:"pi lin",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Matériel de protection",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Location outils / équipement",unit:"jour",unitPrice:0,qty:0,isRabais:false},
+  {desc:"Livraison matériaux / transport",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Matériel divers",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Rabais matériaux",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"31. Extras / imprévus": [
+  {desc:"Travaux supplémentaires demandés par client",unit:"heure",unitPrice:90,qty:0,isRabais:false},
+  {desc:"Correction imprévue après démolition",unit:"heure",unitPrice:90,qty:0,isRabais:false},
+  {desc:"Structure non conforme",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Pourriture / moisissure découverte",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Niveau de plancher problématique",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Retour au chantier",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Modification après approbation (approuver par client)",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+  {desc:"Matériel supplémentaire",unit:"forfait",unitPrice:0,qty:1,isRabais:false},
+],
+
+"32. Rabais / ajustements": [
+  {desc:"Rabais client",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+  {desc:"Rabais volume",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+  {desc:"Crédit matériel fourni par client",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+  {desc:"Crédit main-d'oeuvre",unit:"heure",unitPrice:0,qty:0,isRabais:true},
+  {desc:"Ajustement de prix",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+  {desc:"Déduction / retenue",unit:"forfait",unitPrice:0,qty:1,isRabais:true},
+],
+
+"33. Autre / personnalisé": [
+  {desc:"",unit:"forfait",unitPrice:0,qty:0,isRabais:false},
+  {desc:"",unit:"forfait",unitPrice:0,qty:0,isRabais:false},
+  {desc:"",unit:"forfait",unitPrice:0,qty:0,isRabais:false},
+  {desc:"",unit:"forfait",unitPrice:0,qty:0,isRabais:false},
+  {desc:"",unit:"forfait",unitPrice:0,qty:0,isRabais:false},
+],
+
+};
+
+let _apRowCount=0;
+
+function showAddPosteModal(jid){
+  const tplNames=Object.keys(GP_TEMPLATES);
+  let modal=document.getElementById('gpAddPosteModal');
+  if(!modal){modal=document.createElement('div');modal.id='gpAddPosteModal';modal.className='gp-doc-modal';document.body.appendChild(modal);}
+  _apRowCount=0;
+  modal.innerHTML=`
+    <div class="gp-doc-modal-card" style="max-width:900px">
+      <div class="gp-doc-modal-head">
+        <h3>➕ Ajouter un poste</h3>
+        <button onclick="document.getElementById('gpAddPosteModal').classList.add('hidden')" style="background:transparent;border:none;color:var(--muted);font-size:22px;cursor:pointer">✕</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px">
+        <div><label>Phase</label><select id="apPhase" style="width:100%"><option>Phase 1</option><option>Phase 2</option><option>Phase 3</option><option>Phase 4</option></select></div>
+        <div><label>Type</label><select id="apType" style="width:100%"><option>Inclus</option><option>Extra</option><option>Sous-traitant</option></select></div>
+        <div><label>Modèle de poste</label>
+          <select id="apTemplate" onchange="apLoadTemplate()" style="width:100%">
+            <option value="">— Choisir un modèle —</option>
+            ${tplNames.map(t=>`<option value="${t.replace(/"/g,'&quot;')}">${t}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:14px">
+        <label>Nom du poste</label>
+        <input id="apName" placeholder="Ex: 3. Gypse et plâtre" style="width:100%;box-sizing:border-box">
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h4 style="margin:0;font-size:14px">Sous-étapes</h4>
+          <button class="small secondary" onclick="apAddCustomRow()">+ Ligne personnalisée</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr style="background:rgba(122,201,67,.1)">
+              <th style="width:30px;padding:6px 4px;text-align:center">☑</th>
+              <th style="padding:6px 8px;text-align:left">Description</th>
+              <th style="padding:6px 4px;text-align:center;width:72px">Qté</th>
+              <th style="padding:6px 4px;text-align:center;width:58px">Unité</th>
+              <th style="padding:6px 4px;text-align:center;width:78px">$/Unité</th>
+              <th style="padding:6px 4px;text-align:right;width:105px">Montant</th>
+              <th style="width:26px"></th>
+            </tr></thead>
+            <tbody id="apSubsBody">
+              <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px;font-size:13px">← Choisir un modèle ou ajouter une ligne personnalisée</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button onclick="apConfirm(${jid})">✓ Ajouter ce poste</button>
+        <button class="secondary" onclick="document.getElementById('gpAddPosteModal').classList.add('hidden')">Annuler</button>
+      </div>
+    </div>`;
+  modal.classList.remove('hidden');
+}
+
+function apRowHtml(si,i){
+  const isForfait=si.unit==='forfait';
+  const isR=!!si.isRabais;
+  const rowBg=isR?'rgba(220,50,50,.08)':'rgba(0,0,0,.1)';
+  const descStyle=isR?'color:#ff9090;font-style:italic':'';
+  const upStyle=isR?'color:#ff9090;border-color:rgba(220,50,50,.3)':'border-color:rgba(255,255,255,.12)';
+  const qtyStyle='border-color:'+(isR?'rgba(220,50,50,.3)':'rgba(255,255,255,.12)');
+  const calcAmt=(!isForfait&&si.qty&&si.unitPrice)?si.qty*si.unitPrice:0;
+  const amtCell=isForfait
+    ?`<input type="number" id="apAmt_${i}" value="${si.unitPrice||0}" step="0.01" style="width:92px;background:transparent;border-color:rgba(255,255,255,.12)" placeholder="Montant">`
+    :`<span id="apAmt_${i}" class="amount${isR?' red':''}" style="${isR?'color:#ff9090':''}">` + money(calcAmt) + `</span>`;
+  return `<tr id="apRow_${i}" style="background:${rowBg}">
+    <td style="text-align:center;padding:4px"><input type="checkbox" id="apChk_${i}" checked></td>
+    <td style="padding:4px 6px"><input id="apDesc_${i}" value="${(si.desc||'').replace(/"/g,'&quot;')}" style="min-width:215px;background:transparent;${descStyle};border-color:rgba(255,255,255,.12)"></td>
+    <td style="padding:4px"><input type="number" id="apQty_${i}" value="${(!isForfait&&si.qty)||''}" oninput="apCalcRow(${i})" style="width:65px;background:transparent;${qtyStyle}" placeholder="${isForfait?'—':'Qté'}"></td>
+    <td style="padding:4px"><input id="apUnit_${i}" value="${si.unit||''}" style="width:52px;background:transparent;border-color:rgba(255,255,255,.12)"></td>
+    <td style="padding:4px"><input type="number" id="apUp_${i}" value="${si.unitPrice||''}" oninput="apCalcRow(${i})" style="width:72px;background:transparent;${upStyle}" step="0.01" placeholder="${isR?'-$/u':'$/u'}"></td>
+    <td style="padding:4px;text-align:right">${amtCell}</td>
+    <td style="padding:2px"><button class="small" style="background:rgba(220,50,50,.15);color:#ff7070;border-color:rgba(220,50,50,.3);padding:1px 7px" onclick="document.getElementById('apRow_${i}').remove()">✕</button></td>
+  </tr>`;
+}
+
+function apLoadTemplate(){
+  const tplName=document.getElementById('apTemplate')?.value;
+  const items=GP_TEMPLATES[tplName];
+  if(!items)return;
+  const nameInput=document.getElementById('apName');
+  if(nameInput&&!nameInput.value) nameInput.value=tplName;
+  _apRowCount=0;
+  document.getElementById('apSubsBody').innerHTML=items.map(si=>apRowHtml(si,_apRowCount++)).join('');
+}
+
+function apCalcRow(i){
+  const qty=Number(document.getElementById('apQty_'+i)?.value||0);
+  const up=Number(document.getElementById('apUp_'+i)?.value||0);
+  const unit=document.getElementById('apUnit_'+i)?.value||'';
+  if(unit==='forfait')return;
+  const amt=qty*up;
+  const el=document.getElementById('apAmt_'+i);
+  if(el&&el.tagName==='SPAN'){el.textContent=money(amt);el.className='amount'+(amt<0?' red':'');}
+}
+
+function apAddCustomRow(){
+  const i=_apRowCount++;
+  const tbody=document.getElementById('apSubsBody');
+  if(!tbody)return;
+  const row=document.createElement('tr');
+  row.id='apRow_'+i; row.style.background='rgba(0,0,0,.1)';
+  row.innerHTML=`
+    <td style="text-align:center;padding:4px"><input type="checkbox" id="apChk_${i}" checked></td>
+    <td style="padding:4px 6px"><input id="apDesc_${i}" placeholder="Description..." style="min-width:215px;background:transparent;border-color:rgba(255,255,255,.12)"></td>
+    <td style="padding:4px"><input type="number" id="apQty_${i}" oninput="apCalcRow(${i})" style="width:65px;background:transparent;border-color:rgba(255,255,255,.12)" placeholder="Qté"></td>
+    <td style="padding:4px"><input id="apUnit_${i}" placeholder="pc²" style="width:52px;background:transparent;border-color:rgba(255,255,255,.12)"></td>
+    <td style="padding:4px"><input type="number" id="apUp_${i}" oninput="apCalcRow(${i})" style="width:72px;background:transparent;border-color:rgba(255,255,255,.12)" step="0.01" placeholder="$/u"></td>
+    <td style="padding:4px;text-align:right"><span id="apAmt_${i}" class="amount">0,00 $</span></td>
+    <td style="padding:2px"><button class="small" style="background:rgba(220,50,50,.15);color:#ff7070;border-color:rgba(220,50,50,.3);padding:1px 7px" onclick="document.getElementById('apRow_${i}').remove()">✕</button></td>`;
+  tbody.appendChild(row);
+  document.getElementById('apDesc_'+i)?.focus();
+}
+
+function apConfirm(jid){
+  const j=constructionJob(jid); if(!j)return;
+  const name=document.getElementById('apName')?.value.trim();
+  if(!name){alert('Entrez un nom de poste.');return;}
+  const phase=document.getElementById('apPhase')?.value||'Phase 1';
+  const type=document.getElementById('apType')?.value||'Inclus';
+  const subs=[];
+  const tbody=document.getElementById('apSubsBody');
+  if(tbody){[...tbody.querySelectorAll('tr[id^="apRow_"]')].forEach(row=>{
+    const i=row.id.replace('apRow_','');
+    const chk=document.getElementById('apChk_'+i);
+    if(!chk?.checked)return;
+    const desc=document.getElementById('apDesc_'+i)?.value||'';
+    if(!desc.trim())return;
+    const qty=Number(document.getElementById('apQty_'+i)?.value||0);
+    const unit=document.getElementById('apUnit_'+i)?.value||'';
+    const up=Number(document.getElementById('apUp_'+i)?.value||0);
+    const amtEl=document.getElementById('apAmt_'+i);
+    let amount=0;
+    if(amtEl?.tagName==='INPUT') amount=Number(amtEl.value||0);
+    else if(qty!==0&&up!==0) amount=qty*up;
+    const isRabais=up<0||desc.toLowerCase().includes('rabais');
+    subs.push({desc,qty,unit,unitPrice:up,amount,supplied:false,isRabais});
+  });}
+  if(!j.trackingItems)j.trackingItems=[];
+  j.trackingItems.push({desc:name,detail:'',phase,budget:0,actual:0,status:'À faire',type,subItems:subs});
+  persist();
+  document.getElementById('gpAddPosteModal').classList.add('hidden');
+  renderConstruction();
+}
+
+/* Remplace addTrackingItem par le modal catalogue */
+function addTrackingItem(jid){
+  showAddPosteModal(jid);
+}
+
 function trackingStatusSelect(value, id){
   const opts=["À faire","En cours","Terminé","À vérifier","En attente","Annulé"];
   return `<select id="${id}" onchange="updateTrackingStatus(${id.split('_')[1]}, this.value)">${opts.map(o=>`<option ${o===value?"selected":""}>${o}</option>`).join("")}</select>`;
@@ -4036,7 +4760,7 @@ function trackingDetail(j){
 
     ${phases.map(ph=>{
       const items=(j.trackingItems||[]).filter(i=>i.phase===ph);
-      const phaseBudget=items.reduce((s,i)=>s+Number(i.budget||0),0);
+      const phaseBudget=items.reduce((s,i)=>s+itemBudgetCalc(i),0);
       const phaseActual=items.reduce((s,i)=>s+Number(i.actual||0),0);
       return `<div class="card soft" style="margin-top:16px">
         <h3><span class="badge ${phaseClass(ph)}">${ph}</span> <span class="amount" style="float:right">${money(phaseBudget)}</span></h3>
@@ -4254,6 +4978,180 @@ function updateTrackingClientNote(jid,index,value){
   persist();
 }
 
+function addTrackingSubItem(jid,itemIndex){
+  const j=constructionJob(jid); if(!j)return;
+  if(!j.trackingItems[itemIndex].subItems) j.trackingItems[itemIndex].subItems=[];
+  j.trackingItems[itemIndex].subItems.push(trackingSubItem('Nouvelle sous-étape'));
+  persist(); renderConstruction();
+}
+function addTrackingRabais(jid,itemIndex){
+  const j=constructionJob(jid); if(!j)return;
+  if(!j.trackingItems[itemIndex].subItems) j.trackingItems[itemIndex].subItems=[];
+  const subs=j.trackingItems[itemIndex].subItems;
+  // Pré-remplit qty et unité de la dernière ligne
+  const prev=subs.length>0?subs[subs.length-1]:null;
+  subs.push({
+    desc:'Rabais', isRabais:true,
+    qty:prev?Number(prev.qty||0):0,
+    unit:prev?(prev.unit||''):'',
+    unitPrice:0, amount:0, supplied:false
+  });
+  persist(); renderConstruction();
+}
+function deleteTrackingSubItem(jid,itemIndex,subIndex){
+  const j=constructionJob(jid); if(!j)return;
+  (j.trackingItems[itemIndex].subItems||[]).splice(subIndex,1);
+  persist(); renderConstruction();
+}
+function updateTrackingSubItem(jid,itemIndex,subIndex,field,value){
+  const j=constructionJob(jid); if(!j)return;
+  const si=j.trackingItems[itemIndex].subItems[subIndex]; if(!si)return;
+  if(field==='qty'||field==='unitPrice'){
+    si[field]=Number(value||0);
+    if(si.qty!==0 && si.unitPrice!==0){
+      si.amount=si.qty*si.unitPrice;
+      const el=document.getElementById('si-amt-'+jid+'-'+itemIndex+'-'+subIndex);
+      if(el){el.textContent=money(si.amount); el.className='amount'+(si.amount<0?' red':'');}
+    }
+  } else if(field==='amount'){
+    si.amount=Number(value||0);
+  } else if(field==='supplied'){
+    si.supplied=!!value;
+  } else {
+    si[field]=value;
+  }
+  persist();
+}
+
+function renderPosteRows(j,it,globalIndex){
+  var jid=j.id;
+  var subs=it.subItems||[];
+  var itemBudget=itemBudgetCalc(it);
+  var variance=itemBudget-Number(it.actual||0);
+  var h='';
+  // Poste header row
+  h+='<tr style="background:rgba(122,201,67,.1);border-top:2px solid rgba(122,201,67,.22)">';
+  h+='<td colspan="4"><strong style="cursor:pointer;color:var(--green,#7ac943);text-decoration:underline dotted" onclick="editTrackingItem('+jid+','+globalIndex+')" title="Modifier">'+it.desc+'</strong>';
+  h+=' <span class="muted" style="font-size:11px">'+( it.type||'Inclus')+'</span>';
+  if(it.startDate||it.endDate) h+=' <span class="muted" style="font-size:11px">· '+(it.startDate||'')+(it.endDate?' → '+it.endDate:'')+'</span>';
+  h+='</td>';
+  h+='<td class="amount"><strong>'+money(itemBudget)+'</strong></td>';
+  h+='<td><input type="number" value="'+(it.actual||0)+'" onchange="updateTrackingActual('+jid+','+globalIndex+',this.value)" style="min-width:80px"></td>';
+  h+='<td class="amount '+(variance<0?'red':'green')+'">'+money(variance)+'</td>';
+  h+='<td>'+trackingStatusDropdown(jid,globalIndex,it.status)+'</td>';
+  h+='<td>';
+  h+='<button class="small secondary" onclick="uploadTrackingPhoto('+jid+','+globalIndex+',\'photo\')">+ Photo</button> ';
+  h+='<button class="small secondary" onclick="uploadTrackingPhoto('+jid+','+globalIndex+',\'receipt\')">+ Facture</button>';
+  h+='<div style="font-size:11px;color:var(--muted,#888);margin-top:4px">'+(it.photos||[]).length+' photo(s) · '+(it.receipts||[]).length+' facture(s)</div>';
+  if(typeof miniGalleryHtml==='function'){
+    h+=miniGalleryHtml(it.photos||[],'photo-mini');
+    h+=miniGalleryHtml(it.receipts||[],'receipt-mini');
+  }
+  h+='</td></tr>';
+  // Sub-item rows
+  subs.forEach(function(si,si_idx){
+    var descSafe=(si.desc||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    var unitSafe=(si.unit||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    var isRabais=!!si.isRabais;
+    var amtClass=si.amount<0?' red':'';
+    var rowBg=isRabais?'rgba(220,50,50,.1)':'rgba(0,0,0,.18)';
+    h+='<tr style="background:'+rowBg+';font-size:13px">';
+    // Description
+    if(isRabais){
+      h+='<td style="padding-left:24px;color:#ff9090;font-style:italic"><input value="'+descSafe+'" onchange="updateTrackingSubItem('+jid+','+globalIndex+','+si_idx+',\'desc\',this.value)" style="min-width:130px;background:transparent;border-color:rgba(220,50,50,.3);color:#ff9090;font-style:italic"></td>';
+    } else {
+      h+='<td style="padding-left:24px"><input value="'+descSafe+'" onchange="updateTrackingSubItem('+jid+','+globalIndex+','+si_idx+',\'desc\',this.value)" style="min-width:190px;background:transparent;border-color:rgba(255,255,255,.12)"></td>';
+    }
+    // Qté
+    h+='<td><input type="number" value="'+(si.qty||'')+'" onchange="updateTrackingSubItem('+jid+','+globalIndex+','+si_idx+',\'qty\',this.value)" style="width:68px;background:transparent;border-color:'+(isRabais?'rgba(220,50,50,.3)':'rgba(255,255,255,.12)')+'" placeholder="Qté"></td>';
+    // Unité
+    h+='<td><input value="'+unitSafe+'" onchange="updateTrackingSubItem('+jid+','+globalIndex+','+si_idx+',\'unit\',this.value)" style="width:52px;background:transparent;border-color:'+(isRabais?'rgba(220,50,50,.3)':'rgba(255,255,255,.12)')+'" placeholder="pc²"></td>';
+    // Prix/unité
+    var upStyle='width:72px;background:transparent;border-color:'+(isRabais?'rgba(220,50,50,.3)':'rgba(255,255,255,.12)')+';'+(isRabais?'color:#ff9090':'');
+    h+='<td><input type="number" value="'+(si.unitPrice||'')+'" onchange="updateTrackingSubItem('+jid+','+globalIndex+','+si_idx+',\'unitPrice\',this.value)" style="'+upStyle+'" placeholder="'+(isRabais?'-$/u':'$/u')+'" step="0.01"></td>';
+    // Montant : éditable si forfait (qty=0 ET unitPrice=0), sinon calculé auto
+    var autoCalc=(si.qty!==0&&si.unitPrice!==0);
+    if(autoCalc){
+      h+='<td class="amount'+amtClass+'" id="si-amt-'+jid+'-'+globalIndex+'-'+si_idx+'" style="'+(isRabais?'color:#ff9090':'')+'">'+money(si.amount)+'</td>';
+    } else {
+      h+='<td><input type="number" value="'+(si.amount||0)+'" onchange="updateTrackingSubItem('+jid+','+globalIndex+','+si_idx+',\'amount\',this.value)" style="width:90px;background:transparent;border-color:'+(isRabais?'rgba(220,50,50,.3)':'rgba(255,255,255,.12)')+';'+(isRabais?'color:#ff9090':'')+'" step="0.01" placeholder="Montant"></td>';
+    }
+    // Fournis
+    h+='<td style="text-align:center">';
+    if(!isRabais) h+='<label style="font-size:10px;color:var(--muted,#888)">Fournis<br><input type="checkbox" '+(si.supplied?'checked':'')+' onchange="updateTrackingSubItem('+jid+','+globalIndex+','+si_idx+',\'supplied\',this.checked)"></label>';
+    h+='</td>';
+    h+='<td colspan="2"></td>';
+    h+='<td><button class="small" style="background:rgba(220,50,50,.18);color:#ff7070;border-color:rgba(220,50,50,.3);padding:2px 8px" onclick="deleteTrackingSubItem('+jid+','+globalIndex+','+si_idx+')">✕</button></td>';
+    h+='</tr>';
+  });
+  // Boutons d'action
+  h+='<tr style="background:rgba(0,0,0,.08)">';
+  h+='<td colspan="9" style="padding:4px 8px 8px 24px;display:flex;gap:8px;flex-wrap:wrap">';
+  h+='<button class="small secondary" onclick="addTrackingSubItem('+jid+','+globalIndex+')">+ Sous-étape</button>';
+  h+='<button class="small" style="background:rgba(220,50,50,.15);color:#ff9090;border:1px solid rgba(220,50,50,.35);padding:3px 10px;border-radius:8px;cursor:pointer;font-size:12px" onclick="addTrackingRabais('+jid+','+globalIndex+')">+ Rabais $/u</button>';
+  h+='</td></tr>';
+  return h;
+}
+
+function editTrackingItem(jid,index){
+  const j=constructionJob(jid); if(!j)return;
+  ensureTrackingEnhancements(j);
+  const it=j.trackingItems[index]; if(!it)return;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let modal=document.getElementById('gpEditPosteModal');
+  if(!modal){modal=document.createElement('div');modal.id='gpEditPosteModal';modal.className='gp-doc-modal';document.body.appendChild(modal);}
+  modal.innerHTML=`
+    <div class="gp-doc-modal-card" style="max-width:680px">
+      <div class="gp-doc-modal-head">
+        <h3>Modifier le poste</h3>
+        <button onclick="document.getElementById('gpEditPosteModal').classList.add('hidden')" style="background:transparent;border:none;color:var(--muted);font-size:22px;cursor:pointer">✕</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="grid-column:1/-1"><label>Nom du poste</label><input id="etp_desc" value="${esc(it.desc||'')}" style="width:100%;box-sizing:border-box"></div>
+        <div><label>Phase</label><select id="etp_phase" style="width:100%">
+          ${['Phase 1','Phase 2','Phase 3','Phase 4'].map(p=>`<option value="${p}"${it.phase===p?' selected':''}>${p}</option>`).join('')}
+        </select></div>
+        <div><label>Type</label><select id="etp_type" style="width:100%">
+          ${['Inclus','Extra','Sous-traitant','Interne'].map(t=>`<option value="${t}"${(it.type||'Inclus')===t?' selected':''}>${t}</option>`).join('')}
+        </select></div>
+        <div style="grid-column:1/-1"><label>Description (interne)</label><textarea id="etp_detail" style="width:100%;min-height:70px;box-sizing:border-box">${esc(it.detail||'')}</textarea></div>
+        <div style="grid-column:1/-1"><label>Note client</label><textarea id="etp_clientNote" style="width:100%;min-height:70px;box-sizing:border-box">${esc(it.clientNote||'')}</textarea></div>
+        <div><label>Prix chantier ($)</label><input id="etp_budget" type="number" value="${it.budget||0}" style="width:100%;box-sizing:border-box"></div>
+        <div><label>Coût réel privé ($)</label><input id="etp_actual" type="number" value="${it.actual||0}" style="width:100%;box-sizing:border-box"></div>
+        <div><label>Date début</label><input id="etp_start" type="date" value="${esc(it.startDate||'')}" style="width:100%;box-sizing:border-box"></div>
+        <div><label>Date fin</label><input id="etp_end" type="date" value="${esc(it.endDate||'')}" style="width:100%;box-sizing:border-box"></div>
+        <div><label>Statut</label><select id="etp_status" style="width:100%">
+          ${['À faire','En cours','En attente','À vérifier','Terminé','Annulé'].map(s=>`<option value="${s}"${(it.status||'À faire')===s?' selected':''}>${s}</option>`).join('')}
+        </select></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button onclick="saveTrackingItemEdit(${jid},${index})">Enregistrer</button>
+        <button class="secondary" onclick="document.getElementById('gpEditPosteModal').classList.add('hidden')">Fermer</button>
+      </div>
+    </div>`;
+  modal.classList.remove('hidden');
+  document.getElementById('etp_desc').focus();
+}
+
+function saveTrackingItemEdit(jid,index){
+  const j=constructionJob(jid); if(!j)return;
+  ensureTrackingEnhancements(j);
+  const it=j.trackingItems[index]; if(!it)return;
+  it.desc=document.getElementById('etp_desc').value.trim()||it.desc;
+  it.phase=document.getElementById('etp_phase').value;
+  it.type=document.getElementById('etp_type').value;
+  it.detail=document.getElementById('etp_detail').value;
+  it.clientNote=document.getElementById('etp_clientNote').value;
+  it.budget=Number(document.getElementById('etp_budget').value||0);
+  it.actual=Number(document.getElementById('etp_actual').value||0);
+  it.startDate=document.getElementById('etp_start').value;
+  it.endDate=document.getElementById('etp_end').value;
+  it.status=document.getElementById('etp_status').value;
+  persist();
+  document.getElementById('gpEditPosteModal').classList.add('hidden');
+  renderConstruction();
+}
+
 function buildClientFollowupHtml(j){
   ensureTrackingEnhancements(j);
   const c=trackingCalc(j);
@@ -4370,33 +5268,18 @@ trackingDetail=function(j){
 
     ${phases.map(ph=>{
       const items=(j.trackingItems||[]).filter(i=>i.phase===ph);
-      const phaseBudget=items.reduce((s,i)=>s+Number(i.budget||0),0);
+      const phaseBudget=items.reduce((s,i)=>s+itemBudgetCalc(i),0);
       const phaseActual=items.reduce((s,i)=>s+Number(i.actual||0),0);
       return `<div class="card soft" style="margin-top:16px">
         <h3><span class="badge ${phaseClass(ph)}">${ph}</span> <span class="amount" style="float:right">${money(phaseBudget)}</span></h3>
         <div class="tablewrap"><table>
-          <thead><tr><th>Poste</th><th>Description</th><th>Dates</th><th>Prix chantier</th><th>Coût réel privé</th><th>Écart privé</th><th>Statut</th><th>Photos / factures</th></tr></thead>
+          <thead><tr><th>Poste / Description</th><th>Qté</th><th>Unité</th><th>Prix/Unité</th><th>Montant</th><th>Coût réel</th><th>Écart</th><th>Statut</th><th>Photos</th></tr></thead>
           <tbody>
             ${items.map((it,idx)=>{
               const globalIndex=(j.trackingItems||[]).indexOf(it);
-              const variance=Number(it.budget||0)-Number(it.actual||0);
-              return `<tr>
-                <td><strong>${it.desc}</strong><br><span class="muted">${it.type||"Inclus"}</span></td>
-                <td>${it.detail||""}<br><label>Note client</label><textarea onchange="updateTrackingClientNote(${j.id},${globalIndex},this.value)" style="min-width:220px">${it.clientNote||""}</textarea></td>
-                <td><label>Début</label><input type="date" value="${it.startDate||""}" onchange="updateTrackingDate(${j.id},${globalIndex},'startDate',this.value)"><label>Fin</label><input type="date" value="${it.endDate||""}" onchange="updateTrackingDate(${j.id},${globalIndex},'endDate',this.value)"></td>
-                <td class="amount">${money(it.budget)}</td>
-                <td><input type="number" value="${it.actual||0}" onchange="updateTrackingActual(${j.id},${globalIndex},this.value)" style="min-width:110px"></td>
-                <td class="amount ${variance<0?'red':'green'}">${money(variance)}</td>
-                <td>${trackingStatusDropdown(j.id,globalIndex,it.status)}</td>
-                <td>
-                  <button class="small secondary" onclick="uploadTrackingPhoto(${j.id},${globalIndex},'photo')">Photo chantier</button>
-                  <button class="small secondary" onclick="uploadTrackingPhoto(${j.id},${globalIndex},'receipt')">Facture fournisseur</button>
-                  <div class="photo-grid">${(it.photos||[]).map(p=>`<img class="photo-thumb" src="${p.data}" title="${p.name||""}">`).join("")}</div>
-                  <div class="muted">${(it.receipts||[]).length} facture(s) interne(s)</div>
-                </td>
-              </tr>`;
+              return renderPosteRows(j,it,globalIndex);
             }).join("")}
-            <tr><td colspan="3" style="text-align:right"><strong>Sous-total ${ph}</strong></td><td class="amount">${money(phaseBudget)}</td><td class="amount">${money(phaseActual)}</td><td class="amount">${money(phaseBudget-phaseActual)}</td><td></td><td></td></tr>
+            <tr><td colspan="4" style="text-align:right"><strong>Sous-total ${ph}</strong></td><td class="amount">${money(phaseBudget)}</td><td class="amount">${money(phaseActual)}</td><td class="amount">${money(phaseBudget-phaseActual)}</td><td></td><td></td></tr>
           </tbody>
         </table></div>
       </div>`;
@@ -4542,7 +5425,7 @@ showClientFollowup=function(jid){
       <h2>Aperçu client — rapport PDF de suivi</h2>
       <div>
         <button onclick="emailClientFollowup(${jid})">Préparer email client</button>
-        <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
+        <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
         <button class="danger" onclick="document.getElementById('clientReportWrap').remove()">Fermer</button>
       </div>
     </div>
@@ -4881,34 +5764,18 @@ trackingDetail=function(j){
 
     ${phases.map(ph=>{
       const items=(j.trackingItems||[]).filter(i=>i.phase===ph);
-      const phaseBudget=items.reduce((s,i)=>s+Number(i.budget||0),0);
+      const phaseBudget=items.reduce((s,i)=>s+itemBudgetCalc(i),0);
       const phaseActual=items.reduce((s,i)=>s+Number(i.actual||0),0);
       return `<div class="card soft" style="margin-top:16px">
         <h3><span class="badge ${phaseClass(ph)}">${ph}</span> <span class="amount" style="float:right">${money(phaseBudget)}</span></h3>
         <div class="tablewrap"><table>
-          <thead><tr><th>Poste</th><th>Description</th><th>Dates</th><th>Prix chantier</th><th>Coût réel privé</th><th>Écart privé</th><th>Statut</th><th>Photos / factures</th></tr></thead>
+          <thead><tr><th>Poste / Description</th><th>Qté</th><th>Unité</th><th>Prix/Unité</th><th>Montant</th><th>Coût réel</th><th>Écart</th><th>Statut</th><th>Photos</th></tr></thead>
           <tbody>
             ${items.map((it,idx)=>{
               const globalIndex=(j.trackingItems||[]).indexOf(it);
-              const variance=Number(it.budget||0)-Number(it.actual||0);
-              return `<tr>
-                <td><strong>${it.desc}</strong><br><span class="muted">${it.type||"Inclus"}</span></td>
-                <td>${it.detail||""}<br><label>Note client</label><textarea onchange="updateTrackingClientNote(${j.id},${globalIndex},this.value)" style="min-width:220px">${it.clientNote||""}</textarea></td>
-                <td><label>Début</label><input type="date" value="${it.startDate||""}" onchange="updateTrackingDate(${j.id},${globalIndex},'startDate',this.value)"><label>Fin</label><input type="date" value="${it.endDate||""}" onchange="updateTrackingDate(${j.id},${globalIndex},'endDate',this.value)"></td>
-                <td class="amount">${money(it.budget)}</td>
-                <td><input type="number" value="${it.actual||0}" onchange="updateTrackingActual(${j.id},${globalIndex},this.value)" style="min-width:110px"></td>
-                <td class="amount ${variance<0?'red':'green'}">${money(variance)}</td>
-                <td>${trackingStatusDropdown(j.id,globalIndex,it.status)}</td>
-                <td>
-                  <button class="small secondary" onclick="uploadTrackingPhoto(${j.id},${globalIndex},'photo')">+ Photo</button>
-                  <button class="small secondary" onclick="uploadTrackingPhoto(${j.id},${globalIndex},'receipt')">+ Facture</button>
-                  <div><span class="doc-count">${(it.photos||[]).length} photo(s)</span><span class="doc-count">${(it.receipts||[]).length} facture(s)</span></div>
-                  ${miniGalleryHtml(it.photos||[],"photo-mini")}
-                  ${miniGalleryHtml(it.receipts||[],"receipt-mini")}
-                </td>
-              </tr>`;
+              return renderPosteRows(j,it,globalIndex);
             }).join("")}
-            <tr><td colspan="3" style="text-align:right"><strong>Sous-total ${ph}</strong></td><td class="amount">${money(phaseBudget)}</td><td class="amount">${money(phaseActual)}</td><td class="amount">${money(phaseBudget-phaseActual)}</td><td></td><td></td></tr>
+            <tr><td colspan="4" style="text-align:right"><strong>Sous-total ${ph}</strong></td><td class="amount">${money(phaseBudget)}</td><td class="amount">${money(phaseActual)}</td><td class="amount">${money(phaseBudget-phaseActual)}</td><td></td><td></td></tr>
           </tbody>
         </table></div>
       </div>`;
@@ -4995,21 +5862,21 @@ function gpImportBackupFile(event){
   reader.readAsText(file);
 }
 function gpBackupPanelHtml(){
-  var synced = window._gpSyncEnabled && window._gpCurrentUser && window._gpCurrentUser.uid !== 'local';
-  var statusHtml = synced
-    ? '<div style="padding:11px 14px;border-radius:14px;background:rgba(34,209,139,.10);border:1px solid rgba(34,209,139,.25);margin-bottom:14px"><strong style="color:#22d18b">✅ Sauvegarde automatique active</strong><br><span class="muted" style="font-size:13px">Vos données sont synchronisées en temps réel dans Firebase.</span></div>'
-    : '<div style="padding:11px 14px;border-radius:14px;background:rgba(255,204,102,.10);border:1px solid rgba(255,204,102,.25);margin-bottom:14px"><strong style="color:#ffcc66">☁ Mode local</strong><br><span class="muted" style="font-size:13px">Connectez-vous pour activer la sauvegarde cloud automatique.</span></div>';
-  return '<div class="card backup-panel noprint">' +
-    '<h2>💾 Sauvegarde</h2>' + statusHtml +
-    '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
-      '<button class="secondary" onclick="gpDownloadBackup()">⬇ Export JSON local</button>' +
-      '<label class="file-label" style="background:rgba(255,255,255,.075);color:var(--text);border:1px solid var(--line)">' +
-        '⬆ Importer JSON' +
-        '<input type="file" accept=".json,.gprospective" style="display:none" onchange="gpImportBackupFile(event)">' +
-      '</label>' +
-    '</div>' +
-    '<p class="muted" style="margin-top:10px;font-size:12px">L\'export local est optionnel — Firebase sauvegarde déjà toutes vos données.</p>' +
-  '</div>';
+  var sync = window._gpSyncEnabled ?
+    '<div style="padding:10px 14px;border-radius:14px;background:rgba(34,209,139,.10);border:1px solid rgba(34,209,139,.25);margin-bottom:12px"><span style="color:#22d18b;font-weight:900">✅ Vos données sont sauvegardées automatiquement dans le cloud Firebase.</span><br><span class="muted" style="font-size:13px">Chaque modification est synchronisée en temps réel sur tous vos appareils.</span></div>' :
+    '<div style="padding:10px 14px;border-radius:14px;background:rgba(255,204,102,.10);border:1px solid rgba(255,204,102,.25);margin-bottom:12px"><span style="color:#ffcc66;font-weight:900">⚠ Synchronisation en attente.</span><br><span class="muted" style="font-size:13px">Connectez-vous pour activer la sauvegarde cloud.</span></div>';
+  return `<div class="card backup-panel noprint">
+    <h2>💾 Sauvegarde</h2>
+    ${sync}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+      <button class="secondary" onclick="gpDownloadBackup()">⬇ Export local (JSON)</button>
+      <label class="file-label secondary" style="background:rgba(255,255,255,.075);color:var(--text);border:1px solid var(--line)">
+        ⬆ Importer JSON
+        <input type="file" accept=".json,.gprospective" style="display:none" onchange="gpImportBackupFile(event)">
+      </label>
+    </div>
+    <p class="muted" style="margin-top:10px;font-size:12px">L'export local est optionnel — vos données sont déjà dans Firebase.</p>
+  </div>`;
 }
 
 /* Remplace/renforce les boutons existants */
@@ -5197,7 +6064,7 @@ gpBackupPanelHtml=function(){
 
 /* ===== ENREGISTRER KIT COMPLET : HTML + DONNÉES DANS UN DOSSIER ===== */
 async function gpSaveKitToFolder(){
-  alert('Vos données sont automatiquement sauvegardées dans Firebase.\nPour un export local optionnel, utilisez le bouton "Export JSON local".');
+  alert("Vos données sont automatiquement sauvegardées dans Firebase.\n\nPour un export local optionnel, utilisez le bouton \"Export local (JSON)\" dans le panneau Sauvegarde.");
 }
 
 /* Panneau ajusté : bouton kit complet + données seules */
@@ -5486,15 +6353,17 @@ function gpModelPhaseOptions(){
   return ["Phase 1","Phase 2","Phase 3","Phase 4"].map(p=>`<option>${p}</option>`).join("");
 }
 function gpModelPostOptions(){
-  return trackingPresetOptions ? trackingPresetOptions() : [
-    "Préparation du chantier","Démolition","Reconstruction / divisions","Plomberie rough","Électricité rough","Gypse","Plâtre","Peinture","Cuisine","Salle de bain","Finition","Autre"
-  ].map(o=>`<option>${o}</option>`).join("");
+  if(typeof GP_TEMPLATES !== 'undefined'){
+    return Object.keys(GP_TEMPLATES).map(k=>`<option value="${k.replace(/"/g,'&quot;')}">${k}</option>`).join('');
+  }
+  return ["Démolition","Travaux préparatoires","Division et structure","Gypse — pose et installation","Peinture","Céramique","Plomberie — rough-in","Électricité — rough-in","Finition"].map(o=>`<option>${o}</option>`).join('');
 }
 function toggleConstructionModelBuilder(){
   const f=document.getElementById("constructionModelBuilder");
   if(!f)return;
   f.classList.toggle("hidden");
   gpRenderModelPreview();
+  setTimeout(gpUpdateModelSubItems,50);
 }
 function gpModelBuilderHtml(){
   return `<div id="constructionModelBuilder" class="model-builder hidden noprint">
@@ -5518,6 +6387,7 @@ function gpModelBuilderHtml(){
       </div>
     </div>
 
+
     <div class="model-line">
       <div>
         <label>Phase</label>
@@ -5525,21 +6395,32 @@ function gpModelBuilderHtml(){
       </div>
       <div>
         <label>Type de poste</label>
-        <select id="modelPost" onchange="gpToggleModelCustom()">${gpModelPostOptions()}</select>
+        <select id="modelPost" onchange="gpUpdateModelSubItems()">${gpModelPostOptions()}</select>
       </div>
       <div>
-        <label>Nom personnalisé</label>
-        <input id="modelCustomPost" disabled placeholder="Automatique selon le choix">
+        <label>Autre poste (si besoin)</label>
+        <input id="modelCustomPost" placeholder="Description libre..." style="font-size:12px">
       </div>
       <div>
-        <label>Prix chantier</label>
-        <input id="modelPrice" type="number" value="0">
+        <label>Prix chantier (auto)</label>
+        <input id="modelPrice" type="number" value="0" readonly style="background:#f5f5f5">
       </div>
-      <button onclick="gpAddModelLine()">Ajouter</button>
+      <button onclick="gpAddModelLine()">Ajouter le poste</button>
     </div>
-
-    <label style="margin-top:12px">Description / note de ce poste</label>
-    <textarea id="modelDetail" placeholder="Ex: description des travaux, inclusions, matériaux, conditions, exclusions..."></textarea>
+    <div id="modelSubItemsContainer" style="margin-top:10px;display:none;overflow-x:auto">
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead><tr style="background:#f0f4f8">
+          <th style="width:28px;padding:4px 2px"></th>
+          <th style="text-align:left;padding:4px">Description</th>
+          <th style="width:55px;text-align:right;padding:4px">Qté</th>
+          <th style="width:65px;text-align:left;padding:4px">Unité</th>
+          <th style="width:75px;text-align:right;padding:4px">Prix/u</th>
+          <th style="width:85px;text-align:right;padding:4px">Montant</th>
+        </tr></thead>
+        <tbody id="modelSubItemsBody"></tbody>
+      </table>
+      <button type="button" onclick="gpAddSubItemRow()" style="margin-top:5px;font-size:11px;padding:3px 8px">+ Ajouter une ligne</button>
+    </div>
 
     <div id="modelPreview" class="model-preview"></div>
 
@@ -5551,36 +6432,99 @@ function gpModelBuilderHtml(){
   </div>`;
 }
 function gpToggleModelCustom(){
-  const sel=document.getElementById("modelPost");
-  const custom=document.getElementById("modelCustomPost");
-  if(!sel||!custom)return;
-  if(sel.value==="Autre"){
-    custom.disabled=false;
-    custom.placeholder="Écris ton poste";
-  }else{
-    custom.disabled=true;
-    custom.value="";
-    custom.placeholder="Automatique selon le choix";
-  }
-}
+/* gpToggleModelCustom kept for compat */
+function gpToggleModelCustom(){ gpUpdateModelSubItems(); }
 function gpAddModelLine(){
   const phase=document.getElementById("modelPhase")?.value || "Phase 1";
-  const preset=document.getElementById("modelPost")?.value || "Autre";
-  const custom=document.getElementById("modelCustomPost")?.value || "";
-  const desc=(preset==="Autre" ? custom : preset) || "Poste";
-  const detail=document.getElementById("modelDetail")?.value || "";
-  const price=Number(document.getElementById("modelPrice")?.value || 0);
-  gpModelDraftLines.push({phase,desc,detail,price});
-  document.getElementById("modelDetail").value="";
+  const postName=document.getElementById("modelPost")?.value || "";
+  const custom=(document.getElementById("modelCustomPost")?.value||"").trim();
+  const desc=postName || custom || "Poste";
+  // Collect checked sub-items
+  const checks=document.querySelectorAll(".model-si-check:checked");
+  const subItems=[];
+  checks.forEach(function(cb){
+    const i=cb.getAttribute("data-idx");
+    const d=document.querySelector(".model-si-desc[data-idx='"+i+"']")?.value||"";
+    const qty=Number(document.querySelector(".model-si-qty[data-idx='"+i+"']")?.value||0);
+    const unit=document.querySelector(".model-si-unit[data-idx='"+i+"']")?.value||"forfait";
+    const up=Number(document.querySelector(".model-si-up[data-idx='"+i+"']")?.value||0);
+    const amt=(qty>0&&up!==0)?qty*up:0;
+    subItems.push({desc:d,qty:qty,unit:unit,unitPrice:up,amount:amt,supplied:false});
+  });
+  // Add custom item if filled
+  if(custom && !postName){
+    subItems.push({desc:custom,qty:0,unit:"forfait",unitPrice:0,amount:0,supplied:false});
+  }
+  const price=Number(document.getElementById("modelPrice")?.value||0);
+  gpModelDraftLines.push({phase,desc,subItems,price});
+  // Reset
+  const cp=document.getElementById("modelCustomPost"); if(cp) cp.value="";
   document.getElementById("modelPrice").value="0";
+  document.querySelectorAll(".model-si-check").forEach(function(c){c.checked=false;});
+  gpCalcModelSubTotal(null);
   gpRenderModelPreview();
 }
+function gpCalcModelSubTotal(el){
+  // Find any visible tbody that has sub-item rows
+  let tbody=null;
+  if(el){
+    var node=el;
+    while(node&&node.tagName!=="TBODY") node=node.parentNode;
+    if(node&&node.tagName==="TBODY") tbody=node;
+  }
+  if(!tbody){
+    var all=document.getElementsByTagName("tbody");
+    for(var k=0;k<all.length;k++){
+      if(all[k].querySelector(".model-si-qty")){tbody=all[k];break;}
+    }
+  }
+  if(!tbody)return;
+  var total=0;
+  var rows=tbody.getElementsByTagName("tr");
+  for(var ri=0;ri<rows.length;ri++){
+    var row=rows[ri];
+    var qtyEl=row.querySelector(".model-si-qty");
+    var upEl=row.querySelector(".model-si-up");
+    var amtEl=row.querySelector(".model-si-amt");
+    var chk=row.querySelector(".model-si-check");
+    if(!qtyEl||!upEl||!amtEl) continue;
+    var qty=parseFloat(qtyEl.value)||0;
+    var up=parseFloat(upEl.value)||0;
+    var amt=(qty!==0&&up!==0)?qty*up:0;
+    amtEl.textContent=amt!==0?"$"+(Math.abs(amt).toFixed(2)):"-";
+    if(chk&&chk.checked) total+=amt;
+  }
+  var priceInput=document.getElementById("modelPrice");
+  if(priceInput) priceInput.value=total.toFixed(2);
+}
+/* Document-level delegation — fires no matter how the elements were created */
+(function(){
+  function _gpSubItemHandler(e){
+    var t=e.target||e.srcElement;
+    if(!t) return;
+    var cn=t.className||"";
+    if(cn.indexOf("model-si-qty")>=0||cn.indexOf("model-si-up")>=0||cn.indexOf("model-si-check")>=0){
+      gpCalcModelSubTotal(t);
+    }
+    if(cn.indexOf("model-si-qty")>=0||cn.indexOf("model-si-up")>=0||cn.indexOf("model-si-desc")>=0||cn.indexOf("model-si-unit")>=0){
+      if(e.type==="click") t.select&&t.select();
+    }
+  }
+  document.addEventListener("input",_gpSubItemHandler,true);
+  document.addEventListener("change",_gpSubItemHandler,true);
+  document.addEventListener("click",_gpSubItemHandler,true);
+})();
+/* Polling fallback every 500ms */
+setInterval(function(){
+  var tbody=document.getElementById("modelSubItemsBody");
+  if(tbody&&tbody.querySelector(".model-si-qty")) gpCalcModelSubTotal(null);
+},500);
 function gpRemoveModelLine(index){
   gpModelDraftLines.splice(index,1);
   gpRenderModelPreview();
 }
 function gpClearModelDraft(){
-  if(!gpModelDraftLines.length || confirm("Vider tous les postes du modèle?")){
+  if(!gpModelDraftLines.length||confirm("Vider tous les postes du modèle?")){
     gpModelDraftLines=[];
     gpRenderModelPreview();
   }
@@ -5588,28 +6532,26 @@ function gpClearModelDraft(){
 function gpRenderModelPreview(){
   const p=document.getElementById("modelPreview");
   if(!p)return;
-  const total=gpModelDraftLines.reduce((s,l)=>s+Number(l.price||0),0);
+  const total=gpModelDraftLines.reduce(function(s,l){return s+Number(l.price||0);},0);
   if(!gpModelDraftLines.length){
-    p.innerHTML=`<h3>Aperçu du devis</h3><p class="muted">Ajoute des postes. Ils vont apparaître ici avec le total du chantier.</p>`;
+    p.innerHTML='<h3>Aperçu du devis</h3><p class="muted">Ajoute des postes. Ils vont apparaître ici avec le total du chantier.</p>';
     return;
   }
-  p.innerHTML=`<h3>Aperçu du devis / chantier</h3>
-    <table>
-      <thead><tr><th>Phase</th><th>Poste</th><th>Description</th><th style="text-align:right">Prix chantier</th><th></th></tr></thead>
-      <tbody>
-        ${gpModelDraftLines.map((l,i)=>`<tr>
-          <td><strong>${l.phase}</strong></td>
-          <td>${l.desc}</td>
-          <td>${l.detail||"-"}</td>
-          <td class="amount" style="text-align:right">${money(l.price)}</td>
-          <td style="text-align:right"><button class="small danger" onclick="gpRemoveModelLine(${i})">X</button></td>
-        </tr>`).join("")}
-      </tbody>
-    </table>
-    <div class="model-total"><span>Total avant taxes</span><span>${money(total)}</span></div>
-    <div class="model-total"><span>Total avec taxes</span><span>${money(total*(1+TAX))}</span></div>`;
+  var rows=gpModelDraftLines.map(function(l,i){
+    var subs=(l.subItems||[]).map(function(si){
+      var amtStr=si.amount>0?(" — "+money(si.amount)):"";
+      return '<span style="display:block;font-size:11px">✓ '+si.desc+amtStr+"</span>";
+    }).join("");
+    return '<tr><td><strong>'+l.phase+'</strong></td><td>'+l.desc+'</td><td>'+
+      (subs||"-")+'</td><td class="amount" style="text-align:right">'+money(l.price)+
+      '</td><td style="text-align:right"><button class="small danger" onclick="gpRemoveModelLine('+i+')">X</button></td></tr>';
+  }).join("");
+  p.innerHTML='<h3>Aperçu du devis / chantier</h3>'+
+    '<table><thead><tr><th>Phase</th><th>Poste</th><th>Sous-étapes</th><th style="text-align:right">Prix</th><th></th></tr></thead>'+
+    '<tbody>'+rows+'</tbody></table>'+
+    '<div class="model-total"><span>Total avant taxes</span><span>'+money(total)+'</span></div>'+
+    '<div class="model-total"><span>Total avec taxes</span><span>'+money(total*(1+TAX))+'</span></div>';
 }
-function gpCreateConstructionFromModel(){
   if(!gpModelDraftLines.length){
     alert("Ajoute au moins un poste avant de créer le chantier.");
     return;
@@ -5619,7 +6561,11 @@ function gpCreateConstructionFromModel(){
   const email=document.getElementById("modelClientEmail")?.value || "";
   const phone=document.getElementById("modelClientPhone")?.value || "";
   const site=document.getElementById("modelSite")?.value || "";
-  const items=gpModelDraftLines.map(l=>trackingItem(l.desc,l.detail,l.phase,Number(l.price||0),0,"À faire","Inclus"));
+  const items=gpModelDraftLines.map(function(l){
+    const it=trackingItem(l.desc,'',l.phase,Number(l.price||0),0,"À faire","Inclus");
+    it.subItems=(l.subItems||[]).map(function(si){return trackingSubItem(si.desc,si.qty,si.unit,si.unitPrice,si.amount,si.supplied||false);});
+    return it;
+  });
   const job={
     id:jid,
     number:nextNum('CON',constructionJobs),
@@ -5824,21 +6770,32 @@ gpModelBuilderHtml=function(){
       </div>
       <div>
         <label>Type de poste</label>
-        <select id="modelPost" onchange="gpToggleModelCustom()">${gpModelPostOptions()}</select>
-      </div>
-      <div id="modelCustomWrap" class="custom-post-wrap disabled">
-        <label>Autre poste si besoin</label>
-        <input id="modelCustomPost" disabled placeholder="Seulement si Type de poste = Autre">
+        <select id="modelPost" onchange="gpUpdateModelSubItems()">${gpModelPostOptions()}</select>
       </div>
       <div>
-        <label>Prix chantier</label>
-        <input id="modelPrice" type="number" value="0">
+        <label>Autre poste (si besoin)</label>
+        <input id="modelCustomPost" placeholder="Description libre..." style="font-size:12px">
       </div>
-      <button onclick="gpAddModelLine()">Ajouter</button>
+      <div>
+        <label>Prix chantier (auto)</label>
+        <input id="modelPrice" type="number" value="0" readonly style="background:#f5f5f5">
+      </div>
+      <button onclick="gpAddModelLine()">Ajouter le poste</button>
     </div>
-
-    <label style="margin-top:12px">Description / note de ce poste</label>
-    <textarea id="modelDetail" placeholder="Ex: description des travaux, inclusions, matériaux, conditions, exclusions..."></textarea>
+    <div id="modelSubItemsContainer" style="margin-top:10px;display:none;overflow-x:auto">
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead><tr style="background:#f0f4f8">
+          <th style="width:28px;padding:4px 2px"></th>
+          <th style="text-align:left;padding:4px">Description</th>
+          <th style="width:55px;text-align:right;padding:4px">Qté</th>
+          <th style="width:65px;text-align:left;padding:4px">Unité</th>
+          <th style="width:75px;text-align:right;padding:4px">Prix/u</th>
+          <th style="width:85px;text-align:right;padding:4px">Montant</th>
+        </tr></thead>
+        <tbody id="modelSubItemsBody"></tbody>
+      </table>
+      <button type="button" onclick="gpAddSubItemRow()" style="margin-top:5px;font-size:11px;padding:3px 8px">+ Ajouter une ligne</button>
+    </div>
 
     <div id="modelPreview" class="model-preview"></div>
 
@@ -5850,22 +6807,61 @@ gpModelBuilderHtml=function(){
   </div>`;
 };
 
-gpToggleModelCustom=function(){
+gpToggleModelCustom=function(){ gpUpdateModelSubItems(); };
+gpUpdateModelSubItems=function(){
   const sel=document.getElementById("modelPost");
-  const custom=document.getElementById("modelCustomPost");
-  const wrap=document.getElementById("modelCustomWrap");
-  if(!sel||!custom)return;
-  if(sel.value==="Autre"){
-    custom.disabled=false;
-    custom.placeholder="Écris le nom du poste";
-    if(wrap) wrap.classList.remove("disabled");
-  }else{
-    custom.disabled=true;
-    custom.value="";
-    custom.placeholder="Seulement si Type de poste = Autre";
-    if(wrap) wrap.classList.add("disabled");
+  const container=document.getElementById("modelSubItemsContainer");
+  const tbody=document.getElementById("modelSubItemsBody");
+  if(!sel||!container||!tbody)return;
+  const tplName=sel.value;
+  const rows=(typeof GP_TEMPLATES!=='undefined'&&GP_TEMPLATES[tplName])||[];
+  if(!rows.length){
+    container.style.display="none";
+    tbody.innerHTML="";
+    const p=document.getElementById("modelPrice"); if(p) p.value="0";
+    return;
   }
+  container.style.display="block";
+  tbody.innerHTML=rows.map(function(r,i){
+    const d=(r.desc||"").replace(/"/g,"&quot;");
+    const u=(r.unit||'forfait').replace(/"/g,'&quot;');
+    return '<tr><td><input type="checkbox" class="model-si-check" onchange="gpCalcModelSubTotal(this)"></td>'+
+      '<td><input type="text" class="model-si-desc" value="'+d+'" onclick="this.select()" style="width:100%;font-size:12px;border:none;background:transparent;padding:2px"></td>'+
+      '<td><input type="number" class="model-si-qty" value="'+(r.qty||0)+'" step="any" oninput="gpCalcModelSubTotal(this)" onclick="this.select()" style="width:80px;font-size:12px;text-align:right"></td>'+
+      '<td><input type="text" class="model-si-unit" value="'+u+'" onclick="this.select()" style="width:65px;font-size:12px"></td>'+
+      '<td><input type="number" class="model-si-up" value="'+(r.unitPrice||0)+'" step="any" oninput="gpCalcModelSubTotal(this)" onclick="this.select()" style="width:80px;font-size:12px;text-align:right"></td>'+
+      '<td class="model-si-amt" style="text-align:right;padding:3px 6px;font-size:12px;white-space:nowrap;font-weight:bold">-</td></tr>';
+  }).join("");
+  gpBindSubItemEvents(tbody);
+  gpCalcModelSubTotal(null);
 };
+gpAddSubItemRow=function(){
+  const tbody=document.getElementById("modelSubItemsBody");
+  if(!tbody)return;
+  const tr=document.createElement("tr");
+  tr.innerHTML='<td><input type="checkbox" class="model-si-check" onchange="gpCalcModelSubTotal(this)"></td>'+
+    '<td><input type="text" class="model-si-desc" value="" onclick="this.select()" style="width:100%;font-size:12px;border:none;background:transparent;padding:2px"></td>'+
+    '<td><input type="number" class="model-si-qty" value="0" step="any" oninput="gpCalcModelSubTotal(this)" onclick="this.select()" style="width:80px;font-size:12px;text-align:right"></td>'+
+    '<td><input type="text" class="model-si-unit" value="forfait" onclick="this.select()" style="width:65px;font-size:12px"></td>'+
+    '<td><input type="number" class="model-si-up" value="0" step="any" oninput="gpCalcModelSubTotal(this)" onclick="this.select()" style="width:80px;font-size:12px;text-align:right"></td>'+
+    '<td class="model-si-amt" style="text-align:right;padding:3px 6px;font-size:12px;font-weight:bold">-</td>';
+  tbody.appendChild(tr);
+  gpBindSubItemEvents(tbody);
+};
+gpBindSubItemEvents=function(tbody){
+  tbody.querySelectorAll(".model-si-qty,.model-si-up").forEach(function(inp){
+    inp.oninput=function(){ gpCalcModelSubTotal(inp); };
+    inp.onclick=function(){ inp.select(); };
+  });
+  tbody.querySelectorAll(".model-si-check").forEach(function(chk){
+    chk.onchange=function(){ gpCalcModelSubTotal(chk); };
+  });
+  tbody.querySelectorAll(".model-si-desc,.model-si-unit").forEach(function(inp){
+    inp.onclick=function(){ inp.select(); };
+  });
+};
+gpSelectModelSubItem=function(){};
+
 
 gpCreateConstructionFromModel=function(){
   if(!gpModelDraftLines.length){
@@ -5881,7 +6877,11 @@ gpCreateConstructionFromModel=function(){
   const endDate=document.getElementById("modelEndDate")?.value || "";
   const status=document.getElementById("modelStatus")?.value || "Brouillon";
   const priority=document.getElementById("modelPriority")?.value || "Normale";
-  const items=gpModelDraftLines.map(l=>trackingItem(l.desc,l.detail,l.phase,Number(l.price||0),0,"À faire","Inclus"));
+  const items=gpModelDraftLines.map(function(l){
+    const it=trackingItem(l.desc,'',l.phase,Number(l.price||0),0,"À faire","Inclus");
+    it.subItems=(l.subItems||[]).map(function(si){return trackingSubItem(si.desc,si.qty,si.unit,si.unitPrice,si.amount,si.supplied||false);});
+    return it;
+  });
   const job={
     id:jid,
     number:nextNum('CON',constructionJobs),
@@ -6181,24 +7181,17 @@ function acceptConstructionDevis(jid){
   persist();
 }
 function planConstructionJob(jid){
-  var j=constructionJob(jid); if(!j)return;
-  gpModal({
-    title:'📅 Planifier le chantier',
-    fields:[
-      {id:'gp_plan_start',label:'Date de début',type:'date',value:j.startDate||''},
-      {id:'gp_plan_end',label:'Date de fin prévue',type:'date',value:j.endDate||''}
-    ],
-    confirmLabel:'Confirmer',
-    onConfirm:function(v){
-      if(v.gp_plan_start){
-        j.startDate=v.gp_plan_start; j.endDate=v.gp_plan_end||'';
-        if(!['Terminé','Facturé','Annulé'].includes(j.status)) j.status='Planifié';
-        persist(); renderConstruction();
-      }
-    }
-  });
+  const j=constructionJob(jid); if(!j)return;
+  const start=prompt("Date début prévue (AAAA-MM-JJ)",j.startDate||j.scheduled||today());
+  if(start===null)return;
+  const end=prompt("Date fin prévue (AAAA-MM-JJ)",j.endDate||start);
+  if(end===null)return;
+  j.startDate=start||j.startDate||"";
+  j.endDate=end||j.endDate||"";
+  j.scheduled=start||j.scheduled||"";
+  j.status="Planifié";
+  persist();
 }
-
 function startConstructionJob(jid){
   const j=constructionJob(jid); if(!j)return;
   if(!j.startDate) j.startDate=today();
@@ -6371,7 +7364,7 @@ function showConstructionQuotePdf(jid){
       <h2>Aperçu devis client — PDF</h2>
       <div>
         <button onclick="emailConstructionDevis(${jid})">Préparer email client</button>
-        <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
+        <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
         <button class="danger" onclick="document.getElementById('constructionQuoteWrap').remove()">Fermer</button>
       </div>
     </div>
@@ -6394,7 +7387,7 @@ Vous trouverez ci-joint le devis construction ${j.number}.
 
 Chantier : ${j.site||"-"}
 
-IMPORTANT : avant d’envoyer ce courriel, clique sur “Imprimer / PDF / Imprimer” dans le logiciel et joins le PDF du devis.
+IMPORTANT : avant d’envoyer ce courriel, clique sur “Enregistrer en PDF / Imprimer” dans le logiciel et joins le PDF du devis.
 
 Merci,
 Groupe Prospective
@@ -6536,7 +7529,7 @@ showConstructionQuotePdf=function(jid){
       <h2>Aperçu devis client — PDF</h2>
       <div>
         <button onclick="emailConstructionDevis(${jid})">Préparer email client</button>
-        <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
+        <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
         <button class="danger" onclick="document.getElementById('constructionQuoteWrap').remove()">Fermer</button>
       </div>
     </div>
@@ -6702,7 +7695,7 @@ showConstructionQuotePdf=function(jid){
       </div>
       <div>
         <button onclick="emailConstructionDevis(${jid})">Préparer email client</button>
-        <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
+        <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
         <button class="danger" onclick="document.getElementById('constructionQuoteWrap').remove()">Fermer</button>
       </div>
     </div>
@@ -6731,7 +7724,7 @@ Vous trouverez ci-joint le devis construction ${j.number}.
 
 Chantier : ${j.site||"-"}
 
-IMPORTANT : avant d’envoyer ce courriel, clique sur “Imprimer / PDF / Imprimer” dans le logiciel et joins le PDF du devis.
+IMPORTANT : avant d’envoyer ce courriel, clique sur “Enregistrer en PDF / Imprimer” dans le logiciel et joins le PDF du devis.
 
 Merci,
 Groupe Prospective
@@ -7385,7 +8378,7 @@ showConstructionQuotePdf = function(jid){
       </div>
       <div>
         <button onclick="emailConstructionDevis(${jid})">Préparer email client</button>
-        <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
+        <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
         <button class="danger" onclick="document.getElementById('constructionQuoteWrap').remove()">Fermer</button>
       </div>
     </div>
@@ -7689,7 +8682,7 @@ showConstructionQuotePdf = function(jid){
       </div>
       <div>
         <button onclick="emailConstructionDevis(${jid})">Préparer email client</button>
-        <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
+        <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
         <button class="danger" onclick="document.getElementById('constructionQuoteWrap').remove()">Fermer</button>
       </div>
     </div>
@@ -8870,7 +9863,7 @@ function gpOpenClientFollowupSafe(jid){
         <div class="report-toolbar noprint">
           <h2>Aperçu client — rapport de suivi</h2>
           <div>
-            <button onclick="window.print()">Imprimer / PDF / Imprimer</button>
+            <button onclick="window.print()">Enregistrer en PDF / Imprimer</button>
             <button class="danger" onclick="document.getElementById('clientReportWrap').remove()">Fermer</button>
           </div>
         </div>
@@ -10682,7 +11675,7 @@ setInterval(gpEnsureUnifiedTopToolbar, 1200);
         <h2>Aperçu client — devis isolation</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button onclick="gpPrepareIsolationQuoteEmail(${qid})">Préparer email client</button>
-          <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button>
+          <button class="secondary" onclick="window.print()">Enregistrer en PDF / Imprimer</button>
           <button class="danger" onclick="document.getElementById('gpIsoQuotePreviewWrap')?.remove()">Fermer</button>
         </div>
       </div>
@@ -10711,7 +11704,7 @@ Chantier : ${q.site||"-"}
 Total estimé avec taxes : ${gpIsoMoney(c.total)}
 Dépôt proposé : ${gpIsoMoney(c.deposit)}
 
-IMPORTANT : avant d'envoyer ce courriel, clique sur “Imprimer / PDF / Imprimer” dans le logiciel et joins le PDF du devis.
+IMPORTANT : avant d'envoyer ce courriel, clique sur “Enregistrer en PDF / Imprimer” dans le logiciel et joins le PDF du devis.
 
 Merci,
 Groupe Prospective`
@@ -10870,7 +11863,7 @@ Groupe Prospective`
       btn.onclick=function(){
         const realBtn=form.querySelector("#btnAddIsoSection");
         if(realBtn) realBtn.click();
-        else alert("Ajout de section disponible — ouvrez le chantier dans l\'onglet Construction.");
+        else alert("Ajout de section non disponible dans cette version.");
       };
     }
 
@@ -12294,7 +13287,7 @@ Groupe Prospective`
     window.prepareConstructionReminder=function(jid){
       try{
         if(typeof gpReminderEmail==='function') return gpReminderEmail(jid);
-        alert('Relance disponible — ouvrez le chantier dans l\'onglet Construction.');
+        alert('Relance non disponible dans cette version.');
       }catch(e){ alert('Impossible de préparer la relance.'); }
     };
   }
@@ -13534,9 +14527,9 @@ window.GP_OFFICIAL_CONTACT = {
     if(!txt||!dot) return;
     if(state==='saving'){txt.textContent='Sync...';txt.style.color='#ffcc66';dot.style.background='#ffcc66';}
     else if(state==='saved'){txt.textContent='Sauvé '+new Date().toLocaleTimeString('fr-CA',{hour:'2-digit',minute:'2-digit'});txt.style.color='#22d18b';dot.style.background='#22d18b';}
-    else if(state==='error'){txt.textContent=detail||'Hors ligne — données locales OK';txt.title=detail||'';txt.style.color='#ff6b6b';dot.style.background='#ff6b6b';}
-    else if(state==='cloud'){txt.textContent='Cloud ✓';txt.style.color='#22d18b';dot.style.background='#22d18b';var b=document.getElementById('gpSyncBadge');if(b)b.style.opacity='1';}
-    else{txt.textContent='Mode local';txt.style.color='#9da79f';dot.style.background='#9da79f';var b=document.getElementById('gpSyncBadge');if(b)b.style.opacity='.55';}
+    else if(state==='error'){txt.textContent='Erreur sync'; if(detail) txt.title=detail; txt.style.color='#ff6b6b';dot.style.background='#ff6b6b';}
+    else if(state==='cloud'){txt.textContent='Cloud';txt.style.color='#22d18b';dot.style.background='#22d18b';}
+    else{txt.textContent='Local';txt.style.color='#9da79f';dot.style.background='#9da79f';}
   }
   window._gpSetSync=setSync;
 
@@ -13668,492 +14661,4 @@ window.GP_OFFICIAL_CONTACT = {
   function safeClone(o){try{return structuredClone(o)}catch(e){return JSON.parse(JSON.stringify(o));}}
   function loadNumberSettings(){
     try{return Object.assign({}, defaultNumberSettings, JSON.parse(localStorage.getItem(LSROOT+'numberSettings')||'{}'));}
-    catch(e){return safeClone(defaultNumberSettings);}
-  }
-  window.numberSettings = loadNumberSettings();
-  window.gpNumberSettings = window.numberSettings;
-  function saveNumberSettings(){localStorage.setItem(LSROOT+'numberSettings', JSON.stringify(window.numberSettings||defaultNumberSettings));}
-  function gpLegacyPrefix(prefix){
-    const cfg=(window.numberSettings&&window.numberSettings.prefixes)||defaultNumberSettings.prefixes;
-    return cfg[prefix] || prefix;
-  }
-  function gpDocNumber(prefix,list){
-    const cfg=window.numberSettings||defaultNumberSettings;
-    const year=new Date().getFullYear();
-    const realPrefix=gpLegacyPrefix(prefix);
-    const modePrefix=cfg.mode==='test'?'TEST-':'';
-    const fullPrefix=modePrefix+realPrefix;
-    const pat=new RegExp('^'+fullPrefix.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'-'+year+'-(\\d+)$');
-    let max=0;
-    (list||[]).forEach(function(item){
-      const n=String((item&&item.number)||'');
-      const m=n.match(pat);
-      if(m) max=Math.max(max,parseInt(m[1],10)||0);
-    });
-    return fullPrefix+'-'+year+'-'+String(max+1).padStart(3,'0');
-  }
-  window.nextNum = gpDocNumber;
-  window.gpDocNumber = gpDocNumber;
-
-  const originalPersist = window.persist;
-  window.persist = function(){
-    saveNumberSettings();
-    const r = originalPersist ? originalPersist.apply(this,arguments) : undefined;
-    return r;
-  };
-
-  function escHtml(v){return String(v??'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-  function optSelected(a,b){return String(a)===String(b)?'selected':'';}
-  function gpNumberInput(label,key,val){return `<div><label>${label}</label><input id="num_${key}" value="${escHtml(val||'')}"></div>`;}
-
-  const baseRenderSettings = window.renderSettings;
-  window.renderSettings = function(){
-    const el=document.getElementById('settings');
-    if(!el) return;
-    const cfg=window.numberSettings||defaultNumberSettings;
-    el.innerHTML=`
-      <div class="toolbar">
-        <div><div class="kicker">Configuration</div><h2>Paramètres compagnie</h2><p class="muted">Informations utilisées dans les devis, factures, suivis chantier, sauvegardes et documents clients.</p></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button onclick="saveCompanySettings()">Enregistrer paramètres</button><button class="secondary" onclick="resetCompanySettings()">Remettre valeurs de base</button></div>
-      </div>
-      <div class="card">
-        <h3>Identité</h3>
-        <div class="grid grid2">
-          ${gpSettingInput('Nom affiché','companyName')}
-          ${gpSettingInput('Nom légal','legalName')}
-          ${gpSettingInput('Téléphone','phone')}
-          ${gpSettingInput('Site web','website')}
-        </div>
-        <div style="margin-top:12px">${gpSettingInput('Adresse','address')}</div>
-      </div>
-      <div class="card" style="margin-top:14px">
-        <h3>Courriels par division</h3>
-        <div class="grid grid3">
-          ${gpSettingInput('Info général','generalEmail','email')}
-          ${gpSettingInput('Devis','quoteEmail','email')}
-          ${gpSettingInput('Suivi chantier','followupEmail','email')}
-          ${gpSettingInput('Construction','constructionEmail','email')}
-          ${gpSettingInput('Matériaux','materialsEmail','email')}
-          ${gpSettingInput('Isolation','isolationEmail','email')}
-          ${gpSettingInput('Comptabilité','accountingEmail','email')}
-        </div>
-      </div>
-      <div class="card" style="margin-top:14px;border-left:4px solid var(--warning)">
-        <h3>Mode test / production</h3>
-        <p class="muted">Garde le mode test pendant tes essais. Passe en production seulement quand les vrais numéros de devis/factures doivent commencer.</p>
-        <div class="grid grid3">
-          <div><label>Mode des documents</label><select id="num_mode"><option value="test" ${optSelected(cfg.mode,'test')}>Test — numéros TEST</option><option value="prod" ${optSelected(cfg.mode,'prod')}>Production — vrais numéros</option></select></div>
-          ${gpNumberInput('Devis construction','CON',gpLegacyPrefix('CON'))}
-          ${gpNumberInput('Devis isolation','ISO',gpLegacyPrefix('ISO'))}
-          ${gpNumberInput('Factures','FAC',gpLegacyPrefix('FAC'))}
-          ${gpNumberInput('Vente matériaux','MAT',gpLegacyPrefix('MAT'))}
-          ${gpNumberInput('Suivi chantier','SUIVI',gpLegacyPrefix('SUIVI'))}
-        </div>
-        <p class="muted" style="margin-bottom:0">Exemples : DC-2026-001, DI-2026-001, FC-2026-001. En mode test : TEST-DC-2026-001.</p>
-      </div>
-      <div class="card good" style="margin-top:14px">
-        <h3>Contrôle rapide</h3>
-        <div class="grid grid4">
-          ${stat('Mode',cfg.mode==='test'?'TEST':'PRODUCTION','Numérotation')}
-          ${stat('Prochain construction',gpDocNumber('CON',constructionJobs||[]),'Devis chantier')}
-          ${stat('Prochain isolation',gpDocNumber('ISO',isolationQuotes||[]),'Devis isolation')}
-          ${stat('Prochaine facture',gpDocNumber('FAC',invoices||[]),'Facturation')}
-        </div>
-      </div>`;
-  };
-
-  const baseSaveCompanySettings = window.saveCompanySettings;
-  window.saveCompanySettings = function(){
-    if(typeof defaultCompanySettings !== 'undefined'){
-      Object.keys(defaultCompanySettings).forEach(function(k){var e=document.getElementById('set_'+k); if(e) companySettings[k]=e.value.trim();});
-    }
-    const cfg=window.numberSettings||defaultNumberSettings;
-    cfg.mode=(document.getElementById('num_mode')||{}).value||cfg.mode||'test';
-    cfg.prefixes=cfg.prefixes||{};
-    ['CON','ISO','FAC','MAT','SUIVI'].forEach(function(k){var e=document.getElementById('num_'+k); if(e&&e.value.trim()) cfg.prefixes[k]=e.value.trim().toUpperCase();});
-    window.numberSettings=cfg; window.gpNumberSettings=cfg; saveNumberSettings();
-    if(typeof persist==='function') persist();
-    alert('Paramètres compagnie et numérotation enregistrés.');
-  };
-
-  const baseResetCompanySettings = window.resetCompanySettings;
-  window.resetCompanySettings = function(){
-    if(!confirm('Remettre les paramètres compagnie et la numérotation aux valeurs de base?'))return;
-    if(typeof defaultCompanySettings !== 'undefined') companySettings=safeClone(defaultCompanySettings);
-    window.numberSettings=safeClone(defaultNumberSettings); window.gpNumberSettings=window.numberSettings; saveNumberSettings();
-    if(typeof persist==='function') persist();
-  };
-
-  window.gpClientTotals = function(cid){
-    const idn=Number(cid);
-    const qs=(typeof isolationQuotes!=='undefined'?isolationQuotes:[]).filter(q=>Number(q.clientId)===idn);
-    const js=(typeof constructionJobs!=='undefined'?constructionJobs:[]).filter(j=>Number(j.clientId)===idn);
-    const invs=(typeof invoices!=='undefined'?invoices:[]).filter(i=>Number(i.clientId)===idn);
-    const bal=invs.reduce((s,i)=>s+(typeof invoiceBalance==='function'?invoiceBalance(i):0),0);
-    return {quotes:qs,jobs:js,invoices:invs,balance:bal};
-  };
-  window.selectedClientId = window.selectedClientId || ((typeof clients!=='undefined'&&clients[0])?clients[0].id:null);
-
-  window.gpClientDetail = function(c){
-    if(!c) return '<div class="card"><h3>Aucun client sélectionné</h3></div>';
-    const t=gpClientTotals(c.id);
-    return `<div class="card">
-      <div class="toolbar"><div><h2>${escHtml(fullName(c))}</h2>${badge(c.type||'Client')}</div><div class="amount">${money(t.balance)}</div></div>
-      <div class="grid grid3">
-        ${stat('Téléphone',escHtml(c.phone||'-'),'Contact')}
-        ${stat('Email',escHtml(c.email||'-'),'Contact')}
-        ${stat('Solde',money(t.balance),'À recevoir',t.balance>0)}
-      </div>
-      <p><strong>Adresse :</strong> ${escHtml(c.address||'-')}<br><strong>Notes :</strong> ${escHtml(c.notes||'-')}</p>
-      <h3>Dossiers reliés</h3>
-      <div class="tablewrap"><table><thead><tr><th>Type</th><th>Numéro</th><th>Statut</th><th>Montant / solde</th></tr></thead><tbody>
-        ${t.jobs.map(j=>`<tr><td>Construction</td><td>${escHtml(j.number)}</td><td>${badge(j.status)}</td><td class="amount">${money(constructionCalc(j).total)}</td></tr>`).join('')}
-        ${t.quotes.map(q=>`<tr><td>Isolation</td><td>${escHtml(q.number)}</td><td>${badge(q.status)}</td><td class="amount">${money(quoteCalc(q).total)}</td></tr>`).join('')}
-        ${t.invoices.map(i=>`<tr><td>Facture</td><td>${escHtml(i.number)}</td><td>${badge(i.status)}</td><td class="amount">${money(invoiceBalance(i))}</td></tr>`).join('')}
-        ${(!t.jobs.length&&!t.quotes.length&&!t.invoices.length)?'<tr><td colspan="4" class="muted">Aucun dossier relié pour le moment.</td></tr>':''}
-      </tbody></table></div>
-      <div class="toolbar noprint" style="margin-top:16px">
-        <button onclick="showPage('construction',document.querySelectorAll('.nav button')[3])">Créer / voir chantier</button>
-        <button class="secondary" onclick="showPage('isolation',document.querySelectorAll('.nav button')[2])">Créer devis isolation</button>
-        <button class="secondary" onclick="showPage('billing',document.querySelectorAll('.nav button')[5])">Voir factures</button>
-      </div>
-    </div>`;
-  };
-
-  window.renderClients = function(){
-    const el=document.getElementById('clients'); if(!el)return;
-    const c=(typeof client==='function'?client(window.selectedClientId):null)||clients[0];
-    if(c) window.selectedClientId=c.id;
-    el.innerHTML=`<div class="toolbar"><h2>Clients</h2><button onclick="document.getElementById('clientForm').classList.toggle('hidden')">Ajouter client</button></div>
-      <div id="clientForm" class="card hidden noprint"><h3>Nouveau client</h3><div class="fg">${select('Type','c_type',['Entrepreneur','Résidentiel','Commercial'])}${input('Entreprise','c_company')}${input('Nom contact','c_name')}${input('Téléphone','c_phone')}${input('Email','c_email')}${input('Adresse','c_address')}${input('Solde de départ','c_balance',0,'number')}${input('Notes','c_notes')}</div><br><button onclick="addClient()">Enregistrer client</button></div>
-      <div class="split"><div class="card">${clients.map(x=>{const t=gpClientTotals(x.id);return `<button class="listbtn ${c&&c.id===x.id?'active':''}" onclick="selectedClientId=${x.id};renderClients()"><strong>${escHtml(fullName(x))}</strong><br>${badge(x.type||'Client')}<br><span class="amount">${money(t.balance)}</span><br><span class="muted">${t.jobs.length} chantier(s) · ${t.quotes.length} devis · ${t.invoices.length} facture(s)</span></button>`}).join('')||'<p>Aucun client.</p>'}</div><div>${gpClientDetail(c)}</div></div>`;
-  };
-
-  const baseAddClient = window.addClient;
-  window.addClient=function(){
-    const cid=(typeof id==='function'?id():Date.now());
-    clients.unshift({id:cid,type:val('c_type'),company:val('c_company'),name:val('c_name'),phone:val('c_phone'),email:val('c_email'),address:val('c_address'),balance:num('c_balance'),notes:val('c_notes'),createdAt:(typeof today==='function'?today():new Date().toISOString().slice(0,10))});
-    window.selectedClientId=cid;
-    if(typeof persist==='function')persist();
-  };
-
-  function addModeBadge(){
-    if(document.getElementById('gpModeBadge'))return;
-    const b=document.createElement('div'); b.id='gpModeBadge';
-    b.style.cssText='position:fixed;right:12px;bottom:12px;z-index:9998;padding:8px 10px;border-radius:999px;background:rgba(255,204,102,.14);border:1px solid rgba(255,204,102,.35);color:#ffcc66;font:800 12px Arial;box-shadow:0 10px 30px rgba(0,0,0,.25)';
-    document.body.appendChild(b);
-  }
-  window.gpRefreshModeBadge=function(){addModeBadge(); const b=document.getElementById('gpModeBadge'); if(b){const cfg=window.numberSettings||defaultNumberSettings; b.textContent=cfg.mode==='test'?'MODE TEST':'MODE PRODUCTION'; b.style.display='block'; if(cfg.mode==='prod'){b.style.background='rgba(122,201,67,.14)';b.style.borderColor='rgba(122,201,67,.35)';b.style.color='#7ac943';}}};
-  const baseRenderAll = window.renderAll;
-  window.renderAll=function(){const r=baseRenderAll?baseRenderAll.apply(this,arguments):undefined; try{gpRefreshModeBadge();}catch(e){} return r;};
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',function(){try{gpRefreshModeBadge();}catch(e){}}); else {try{gpRefreshModeBadge();}catch(e){}}
-})();
-</script>
-
-
-<script>
-/* ===== V3.2.1 — sauvegarde numérotation dans exports/imports ===== */
-(function(){
-  const baseBackup=window.gpBackupData;
-  window.gpBackupData=function(){
-    const d=baseBackup?baseBackup():{};
-    d.numberSettings=window.numberSettings||window.gpNumberSettings||{};
-    d.version='Groupe Prospective Centre Gestion V3.2';
-    return d;
-  };
-  const baseImport=window.gpImportBackupFile;
-  window.gpImportBackupFile=function(event){
-    const file=event.target.files[0];
-    if(!file)return;
-    const ok=confirm("Restaurer une sauvegarde va remplacer les données actuellement ouvertes dans ce navigateur. Continuer?");
-    if(!ok){event.target.value='';return;}
-    const reader=new FileReader();
-    reader.onload=e=>{
-      try{
-        const d=JSON.parse(e.target.result);
-        if(d.products)products=d.products;
-        if(d.clients)clients=d.clients;
-        if(d.materialOrders)materialOrders=d.materialOrders;
-        if(d.isolationQuotes)isolationQuotes=d.isolationQuotes;
-        if(d.constructionJobs)constructionJobs=d.constructionJobs;
-        if(d.invoices)invoices=d.invoices;
-        if(d.companySettings)companySettings=Object.assign({},defaultCompanySettings,d.companySettings);
-        if(d.numberSettings){window.numberSettings=d.numberSettings; window.gpNumberSettings=d.numberSettings; localStorage.setItem((typeof LS!=='undefined'?LS:'gp_center_v2_')+'numberSettings',JSON.stringify(d.numberSettings));}
-        gpUnsavedChanges=false;
-        gpLastBackup=new Date().toLocaleString('fr-CA');
-        localStorage.setItem((typeof LS!=='undefined'?LS:'gp_center_v2_')+'lastBackupDate',gpLastBackup);
-        persist();
-        alert('Sauvegarde restaurée avec succès.');
-      }catch(err){alert('Impossible d\'importer la sauvegarde. Fichier invalide.');}
-    };
-    reader.readAsText(file);
-  };
-  const baseExport=window.exportBackup;
-  window.exportBackup=function(){
-    let cj=(typeof constructionJobs!=='undefined')?constructionJobs:[];
-    let data={products,clients,materialOrders,isolationQuotes,invoices,constructionJobs:cj,companySettings,numberSettings:(window.numberSettings||{})};
-    let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');
-    a.href=URL.createObjectURL(blob);a.download='sauvegarde-groupe-prospective-v32.json';a.click();
-  };
-})();
-</script>
-
-
-<script>
-/* ===== V3.3 — documents/PDF officiels branchés aux Paramètres ===== */
-(function(){
-  function gp33Esc(v){
-    return String(v == null ? "" : v).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];});
-  }
-  function gp33Cfg(){
-    return window.companySettings || window.defaultCompanySettings || {};
-  }
-  function gp33Company(k, fallback){
-    try{
-      if(typeof companyInfo === "function") return companyInfo(k) || fallback || "";
-    }catch(e){}
-    return gp33Cfg()[k] || fallback || "";
-  }
-  function gp33Name(){
-    try{ if(typeof companyDisplayName === "function") return companyDisplayName(); }catch(e){}
-    return gp33Company('name','Groupe Prospective');
-  }
-  function gp33Mode(){
-    var cfg = window.numberSettings || window.gpNumberSettings || {};
-    return (cfg.mode === 'prod') ? 'PRODUCTION' : 'TEST';
-  }
-  function gp33EmailKey(type){
-    var t = String(type||'').toUpperCase();
-    if(t.indexOf('FACTURE')>=0 || t.indexOf('DÉPÔT')>=0 || t.indexOf('DEPOT')>=0 || t.indexOf('COMPT')>=0) return 'accountingEmail';
-    if(t.indexOf('SUIVI')>=0 || t.indexOf('RAPPORT')>=0) return 'followupEmail';
-    if(t.indexOf('MATÉRIAUX')>=0 || t.indexOf('MATERIAUX')>=0 || t.indexOf('VENTE')>=0) return 'materialsEmail';
-    if(t.indexOf('ISOLATION')>=0) return 'isolationEmail';
-    if(t.indexOf('CONSTRUCTION')>=0) return 'constructionEmail';
-    if(t.indexOf('DEVIS')>=0 || t.indexOf('SOUMISSION')>=0) return 'quoteEmail';
-    return 'generalEmail';
-  }
-  window.gpEmailForDocument = function(type){ return gp33Company(gp33EmailKey(type), gp33Company('generalEmail','info@groupeprospective.com')); };
-  window.gpOfficialDocumentContact = function(type){
-    var address = gp33Company('address','1465 rue des Bouleaux, St-Cyrille-de-Wendover, QC');
-    var phone = gp33Company('phone','873-344-0766');
-    var email = window.gpEmailForDocument(type);
-    var web = gp33Company('website','groupeprospective.com');
-    return gp33Esc(address).replace(/,/g, ',<br>') + '<br>' + gp33Esc(phone) + '<br>' + gp33Esc(email) + (web ? '<br><span style="color:#6a9d21;font-weight:800">'+gp33Esc(web)+'</span>' : '');
-  };
-  function gp33DocNo(kind, source){
-    var raw = '';
-    if(source && source.number) raw = String(source.number);
-    if(!raw && kind === 'FACTURE' && source && source.invoiceNumber) raw = String(source.invoiceNumber);
-    if(!raw && kind === 'SUIVI') raw = 'SC-' + (new Date().getFullYear()) + '-001';
-    if(!raw) raw = kind + '-' + (new Date().getFullYear());
-    return raw.replace(/^DEV-DEV-/,'DEV-').replace(/^DEV-TEST-DC-/,'TEST-DC-').replace(/^DEV-DC-/,'DC-');
-  }
-  function gp33Right(type, lines){
-    var mode = gp33Mode();
-    return '<div class="gp33-mode '+(mode==='PRODUCTION'?'prod':'test')+'">MODE '+mode+'</div>' + (lines||'');
-  }
-  function gp33InstallCss(){
-    if(document.getElementById('gp33_doc_css')) return;
-    var st=document.createElement('style'); st.id='gp33_doc_css';
-    st.textContent = '.gp33-mode{display:inline-block;margin:0 0 8px;padding:5px 9px;border-radius:999px;font:900 10px/1 Arial;letter-spacing:.08em}.gp33-mode.test{background:#fff3d6;color:#7a4a00;border:1px solid #f0c36d}.gp33-mode.prod{background:#edf7e9;color:#2e651b;border:1px solid #a7d497}.gp33-client-only{margin:16px 0;padding:12px 14px;border-radius:12px;background:#f7faf6;border-left:4px solid #7ac943;color:#333;font-size:12px}.gp33-email-line{margin-top:8px;color:#555;font-size:12px}.gp33-internal-warning{display:none!important}@media print{.gp33-mode{print-color-adjust:exact;-webkit-print-color-adjust:exact}}';
-    document.head.appendChild(st);
-  }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded',gp33InstallCss); else gp33InstallCss();
-
-  window.gpHeaderV3 = function(type, number, rightHtml){
-    return '<div class="gp-head-v3">'
-      + '<img class="gp-logo-v3" src="'+(window.GP_LETTERHEAD_LOGO_V3 || window.LOGO || 'logo.png')+'" alt="'+gp33Esc(gp33Name())+'">'
-      + '<div class="gp-coords-v3">'+window.gpOfficialDocumentContact(type)+'</div>'
-      + '</div>'
-      + '<div style="display:flex;justify-content:space-between;gap:22px;align-items:flex-start">'
-      + '<div><div class="gp-title-v3">'+gp33Esc(type)+'</div><div class="gp-sub-v3">'+gp33Esc(gp33Name())+'</div></div>'
-      + '<div class="gp-docno-v3"><strong>'+gp33Esc(number || '')+'</strong><br>'+gp33Right(type,rightHtml||'')+'</div>'
-      + '</div>';
-  };
-
-  window.gpFooterV3 = function(){
-    var name=gp33Name();
-    var address=gp33Company('address','');
-    var phone=gp33Company('phone','');
-    var email=gp33Company('generalEmail','');
-    return '<div class="gp-footer-v3">'+gp33Esc(name)+' · '+gp33Esc(phone)+' · '+gp33Esc(email)+'</div>'
-      + '<div style="font-size:10px;color:#777;text-align:center;margin-top:6px">'+gp33Esc(address)+'</div>'
-      + (typeof gpEmbossV3 === 'function' ? gpEmbossV3() : '');
-  };
-
-  window.gpPaperV3 = function(type, number, rightHtml, bodyHtml){
-    return '<div class="gp-paper-v3 printcard">'+window.gpHeaderV3(type, number, rightHtml)+bodyHtml+window.gpFooterV3()+'</div>';
-  };
-
-  function gp33ConstructionRows(j){
-    try{ if(typeof gpRowsConstructionV3 === 'function') return gpRowsConstructionV3(j) || []; }catch(e){}
-    try{ if(typeof gpRowsForConstructionV2 === 'function') return gpRowsForConstructionV2(j) || []; }catch(e){}
-    return [];
-  }
-  function gp33Tax(){ return (typeof TAX !== 'undefined') ? TAX : 0.14975; }
-
-  window.gpBuildDevisV3 = function(j){
-    var rows = gp33ConstructionRows(j);
-    var subtotal = rows.reduce(function(s,r){return s+Number(r.total||0);},0);
-    var tax = subtotal * gp33Tax();
-    var total = subtotal + tax;
-    var rowsHtml = rows.map(function(r){return '<tr><td><strong>'+gp33Esc(r.desc||'')+'</strong>'+(r.detail?'<br><span style="color:#666">'+gp33Esc(r.detail)+'</span>':'')+'</td><td class="num">'+gp33Esc(r.qty||1)+'</td><td class="num">'+money(Number(r.price||0))+'</td><td class="num">'+money(Number(r.total||0))+'</td></tr>';}).join('') || '<tr><td colspan="4">Aucun poste ajouté.</td></tr>';
-    var no = gp33DocNo('DEVIS', j);
-    return window.gpPaperV3('DEVIS CONSTRUCTION', no,
-      'Date : '+today()+'<br>Chantier : '+gp33Esc(j&&j.number||'-')+'<br>Courriel devis : '+gp33Esc(window.gpEmailForDocument('DEVIS')),
-      '<div class="gp-meta-v3"><div class="gp-box-v3"><strong>Préparé pour</strong>'+gp33Esc(j&&j.clientName||'Client')+'<br>'+gp33Esc(j&&j.site||'')+'<br>'+gp33Esc(j&&j.phone||'')+'<br>'+gp33Esc(j&&j.email||'')+'</div><div class="gp-box-v3"><strong>Dossier</strong>Devis construction<br>'+gp33Esc(j&&j.number||'')+'<br>Début prévu : '+gp33Esc(j&&j.startDate||'À confirmer')+'<br>Fin prévue : '+gp33Esc(j&&j.endDate||'À confirmer')+'</div></div>'
-      + '<table class="gp-table-v3"><thead><tr><th>Description</th><th class="num">Qté</th><th class="num">Prix</th><th class="num">Total</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>'
-      + '<div class="gp-summary-v3"><div class="gp-row-v3"><span>Sous-total estimé</span><strong>'+money(subtotal)+'</strong></div><div class="gp-row-v3"><span>TPS / TVQ</span><strong>'+money(tax)+'</strong></div><div class="gp-row-v3 total"><span>Total devis</span><strong>'+money(total)+'</strong></div></div>'
-      + '<div class="gp33-client-only">Document client : les coûts internes, marges, factures fournisseurs et notes privées ne sont pas affichés.</div>'
-      + '<div class="gp-note-v3"><strong>Notes / conditions</strong><br>'+gp33Esc(j&&j.notes || 'Ce devis est basé sur les informations disponibles au moment de la préparation. Les extras, modifications ou imprévus seront ajoutés séparément.')+'</div>');
-  };
-  window.buildConstructionQuoteHtml = window.gpBuildDevisV3;
-  window.gpBuildConstructionDevisFinal = window.gpBuildDevisV3;
-  window.gpBuildConstructionQuoteHtmlSafe = window.gpBuildDevisV3;
-  window.gpBuildDevisV2 = window.gpBuildDevisV3;
-
-  function gp33InvoiceRows(inv){
-    try{ if(typeof gpInvoiceRowsV3 === 'function') return gpInvoiceRowsV3(inv) || []; }catch(e){}
-    try{ if(typeof gpInvoiceRowsV2 === 'function') return gpInvoiceRowsV2(inv) || []; }catch(e){}
-    return [];
-  }
-  window.invoicePaper = function(inv,c,q,o,amount,bal){
-    var rows = gp33InvoiceRows(inv);
-    var amountTotal = Number(amount || 0);
-    var subtotal = rows.length ? rows.reduce(function(s,r){return s+Number(r.total||0);},0) : amountTotal/(1+gp33Tax());
-    var tax = Math.max(0, amountTotal - subtotal) || subtotal*gp33Tax();
-    var total = amountTotal || subtotal + tax;
-    var paid = Math.max(0, Number(total)-Number(bal||0));
-    var rowsHtml = rows.map(function(r){return '<tr><td><strong>'+gp33Esc(r.desc||'')+'</strong>'+(r.detail?'<br><span style="color:#666">'+gp33Esc(r.detail)+'</span>':'')+'</td><td class="num">'+gp33Esc(r.qty||1)+'</td><td class="num">'+money(Number(r.price||0))+'</td><td class="num">'+money(Number(r.total||0))+'</td></tr>';}).join('') || '<tr><td colspan="4">Aucune ligne disponible.</td></tr>';
-    var j = (inv && inv.source === 'Construction' && typeof constructionJob === 'function') ? constructionJob(inv.sourceId) : null;
-    var type = (inv&&inv.type) || 'FACTURE';
-    return window.gpPaperV3('FACTURE', inv&&inv.number || '-',
-      'Date : '+gp33Esc(inv&&inv.date || today())+'<br>Échéance : '+gp33Esc(inv&&inv.due || today())+'<br>Courriel comptabilité : '+gp33Esc(window.gpEmailForDocument('FACTURE')),
-      '<div class="gp-meta-v3"><div class="gp-box-v3"><strong>Facturé à</strong>'+gp33Esc((c&&c.company)||(c&&c.name)||(c&&c.contact)||(j&&j.clientName)||'Client')+'<br>'+gp33Esc((c&&c.address)||(j&&j.site)||'')+'<br>'+gp33Esc((c&&c.phone)||(j&&j.phone)||'')+'<br>'+gp33Esc((c&&c.email)||(j&&j.email)||'')+'</div><div class="gp-box-v3"><strong>Dossier</strong>'+gp33Esc(type)+'<br>'+(j ? 'Chantier '+gp33Esc(j.number)+'<br>'+gp33Esc(j.site||'') : (q ? 'Devis '+gp33Esc(q.number||'')+'<br>'+gp33Esc(q.site||'') : ''))+'</div></div>'
-      + '<table class="gp-table-v3"><thead><tr><th>Description</th><th class="num">Qté</th><th class="num">Prix</th><th class="num">Total</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>'
-      + '<div class="gp-summary-v3"><div class="gp-row-v3"><span>Sous-total</span><strong>'+money(subtotal)+'</strong></div><div class="gp-row-v3"><span>TPS / TVQ</span><strong>'+money(tax)+'</strong></div><div class="gp-row-v3 total"><span>Total facture</span><strong>'+money(total)+'</strong></div><div class="gp-row-v3"><span>Payé</span><strong>'+money(paid)+'</strong></div><div class="gp-row-v3 total"><span>Solde</span><strong>'+money(Number(bal||0))+'</strong></div></div>'
-      + '<div class="gp-note-v3"><strong>Notes</strong><br>'+gp33Esc(inv&&inv.notes || '')+'</div>');
-  };
-
-  window.buildClientFollowupHtml = function(j){
-    try{ if(typeof ensureTrackingEnhancements === 'function') ensureTrackingEnhancements(j); }catch(e){}
-    var phases = ['Phase 1','Phase 2','Phase 3','Phase 4'];
-    var itemsAll = (j&&j.trackingItems)||[];
-    var allPhotos = itemsAll.reduce(function(s,it){return s+((it.photos||[]).length);},0);
-    var body = '<div class="gp-meta-v3"><div class="gp-box-v3"><strong>Client</strong>'+gp33Esc(j&&j.clientName||'Client')+'<br>'+gp33Esc(j&&j.site||'')+'<br>'+gp33Esc(j&&j.phone||'')+'<br>'+gp33Esc(j&&j.email||'')+'</div><div class="gp-box-v3"><strong>Résumé chantier</strong>Début : '+gp33Esc(j&&j.startDate||'À confirmer')+'<br>Fin prévue : '+gp33Esc(j&&j.endDate||'À confirmer')+'<br>Phase actuelle : '+gp33Esc((typeof currentPhaseName==='function'?currentPhaseName(j):'-'))+'<br>Progression : '+gp33Esc((typeof completionPercent==='function'?completionPercent(j):0))+' %</div></div>'
-      + '<div class="gp33-client-only">Rapport client : les coûts réels internes, marges, factures fournisseurs et notes privées sont masqués.</div>';
-    body += phases.map(function(ph){
-      var items=itemsAll.filter(function(i){return i.phase===ph;});
-      if(!items.length) return '';
-      var done=items.filter(function(i){return i.status==='Terminé';}).length;
-      var pct=Math.round((done/items.length)*100)||0;
-      return '<div class="gp-phase-v3"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:8px"><h2 style="margin:0;color:#111">'+gp33Esc(ph)+'</h2><span style="background:#edf6e6;border-radius:999px;padding:6px 10px;color:#3f6f1f;font-weight:800">'+pct+'% complété</span></div><table class="gp-table-v3"><thead><tr><th>Poste</th><th>Avancement / note client</th><th>Dates</th><th>Statut</th><th>Photos</th></tr></thead><tbody>'
-        + items.map(function(it){var photos=(it.photos||[]).slice(0,6).map(function(p){return '<a href="'+gp33Esc(p.data||'')+'" target="_blank"><img src="'+gp33Esc(p.data||'')+'"></a>';}).join(''); return '<tr><td><strong>'+gp33Esc(it.desc||'')+'</strong></td><td>'+gp33Esc(it.clientNote || it.detail || '')+'</td><td>'+gp33Esc(it.startDate || 'À confirmer')+(it.endDate?' au '+gp33Esc(it.endDate):'')+'</td><td>'+gp33Esc(typeof publicStatusLabel==='function'?publicStatusLabel(it.status):it.status||'')+'</td><td>'+(photos?'<div class="gp-photo-strip-v3">'+photos+'</div>':'Aucune photo')+'</td></tr>';}).join('')
-        + '</tbody></table></div>';
-    }).join('');
-    return window.gpPaperV3('SUIVI DE CHANTIER', gp33DocNo('SUIVI', j), 'Date du suivi : '+today()+'<br>Courriel suivi : '+gp33Esc(window.gpEmailForDocument('SUIVI'))+'<br>Photos : '+allPhotos, body);
-  };
-
-  window.emailConstructionDevis = function(jid){
-    var j = (typeof constructionJob === 'function') ? constructionJob(jid) : null;
-    if(!j) return alert('Aucun chantier sélectionné.');
-    var from = window.gpEmailForDocument('DEVIS');
-    var subject = 'Devis construction '+gp33DocNo('DEVIS',j)+' — '+(j.site||gp33Name());
-    var body = 'Bonjour '+(j.clientName||'')+',\n\nVoici le devis construction '+gp33DocNo('DEVIS',j)+'.\n\nImportant : clique sur “Imprimer / PDF / Imprimer” dans le logiciel et joins le PDF généré à ce courriel.\n\nPour toute question sur le devis : '+from+'\n\nMerci,\n'+gp33Name()+'\n'+gp33Company('phone','');
-    if(typeof gpShowEmail === 'function') return gpShowEmail(j.email||'',subject,body);
-    window.location.href='mailto:'+(j.email||'')+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
-  };
-  window.emailClientFollowup = function(jid){
-    var j = (typeof constructionJob === 'function') ? constructionJob(jid) : null;
-    if(!j) return alert('Aucun chantier sélectionné.');
-    var from = window.gpEmailForDocument('SUIVI');
-    var subject = 'Suivi de chantier '+gp33DocNo('SUIVI',j)+' — '+(j.site||gp33Name());
-    var body = 'Bonjour '+(j.clientName||'')+',\n\nVoici le rapport de suivi de chantier.\n\nImportant : enregistre le rapport en PDF dans le logiciel et joins-le à ce courriel.\n\nPour le suivi du chantier : '+from+'\n\nMerci,\n'+gp33Name()+'\n'+gp33Company('phone','');
-    if(typeof gpShowEmail === 'function') return gpShowEmail(j.email||'',subject,body);
-    window.location.href='mailto:'+(j.email||'')+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
-  };
-
-  var oldShowQuote = window.showConstructionQuotePdf;
-  window.showConstructionQuotePdf = function(jid){
-    var j = (typeof constructionJob === 'function') ? constructionJob(jid) : null;
-    if(!j) return alert('Aucun chantier sélectionné.');
-    var area=document.getElementById('construction'); if(!area) return oldShowQuote ? oldShowQuote(jid) : undefined;
-    var old=document.getElementById('constructionQuoteWrap'); if(old) old.remove();
-    var wrap=document.createElement('div'); wrap.id='constructionQuoteWrap'; wrap.className='quote-preview-wrap';
-    wrap.innerHTML='<div class="quote-toolbar noprint"><div><h2>Aperçu client — DEVIS construction</h2><p class="muted" style="margin:4px 0 0">Document client propre, branché aux Paramètres compagnie.</p></div><div><button onclick="emailConstructionDevis('+jid+')">Préparer email client</button> <button class="secondary" onclick="window.print()">Imprimer / PDF / Imprimer</button> <button class="danger" onclick="document.getElementById(\'constructionQuoteWrap\').remove()">Fermer</button></div></div>'+window.gpBuildDevisV3(j);
-    area.prepend(wrap); setTimeout(function(){wrap.scrollIntoView({behavior:'smooth',block:'start'});},50);
-  };
-
-  var oldBackup=window.gpBackupData;
-  window.gpBackupData=function(){
-    var d=oldBackup?oldBackup():{};
-    d.version='Groupe Prospective Centre Gestion V3.3';
-    d.companySettings=window.companySettings||d.companySettings||{};
-    d.numberSettings=window.numberSettings||window.gpNumberSettings||d.numberSettings||{};
-    return d;
-  };
-})();
-</script>
-
-
-<style id="gpModalStyle">
-.gp-modal-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px}
-.gp-modal-box{background:#101612;border:1px solid rgba(122,201,67,.28);border-radius:22px;padding:28px;max-width:420px;width:100%;box-shadow:0 30px 80px rgba(0,0,0,.5);font-family:Arial,sans-serif}
-.gp-modal-box h3{margin:0 0 18px;color:#f6f8f4;font-size:18px}
-.gp-modal-label{display:block;color:#9da79f;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;margin:0 0 6px}
-.gp-modal-input{width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#f6f8f4;font-size:14px;margin-bottom:14px;box-sizing:border-box;outline:none}
-.gp-modal-input:focus{border-color:rgba(122,201,67,.5)}
-.gp-modal-row{display:flex;gap:10px;margin-top:6px}
-.gp-modal-btn{flex:1;padding:11px;border-radius:12px;border:0;background:#7ac943;color:#07110d;font-weight:900;font-size:14px;cursor:pointer}
-.gp-modal-btn-sec{padding:11px 18px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:transparent;color:#f6f8f4;font-size:14px;cursor:pointer}
-</style>
-
-<script id="gpModalUtils">
-/* Modale inline générique — remplace window.prompt() */
-window.gpModal = function(opts) {
-  // opts: {title, fields:[{id,label,type,value,placeholder}], onConfirm, confirmLabel}
-  var existing = document.getElementById('gpDynModal');
-  if (existing) existing.remove();
-
-  var fieldsHtml = (opts.fields || []).map(function(f) {
-    return '<label class="gp-modal-label" for="' + f.id + '">' + f.label + '</label>' +
-      '<input class="gp-modal-input" id="' + f.id + '" type="' + (f.type||'text') + '" ' +
-      'value="' + (f.value||'') + '" placeholder="' + (f.placeholder||'') + '">';
-  }).join('');
-
-  var overlay = document.createElement('div');
-  overlay.id = 'gpDynModal';
-  overlay.className = 'gp-modal-overlay';
-  overlay.innerHTML =
-    '<div class="gp-modal-box">' +
-      '<h3>' + (opts.title||'') + '</h3>' +
-      fieldsHtml +
-      '<div class="gp-modal-row">' +
-        '<button class="gp-modal-btn" id="gpDynModalConfirm">' + (opts.confirmLabel||'Confirmer') + '</button>' +
-        '<button class="gp-modal-btn-sec" onclick="document.getElementById(\'gpDynModal\').remove()">Annuler</button>' +
-      '</div>' +
-    '</div>';
-
-  document.body.appendChild(overlay);
-
-  var confirmBtn = document.getElementById('gpDynModalConfirm');
-  if (confirmBtn) {
-    confirmBtn.addEventListener('click', function() {
-      var values = {};
-      (opts.fields || []).forEach(function(f) {
-        var el = document.getElementById(f.id);
-        values[f.id] = el ? el.value : '';
-      });
-      overlay.remove();
-      if (opts.onConfirm) opts.onConfirm(values);
-    });
-  }
-
-  // Focus premier champ
-  var first = opts.fields && opts.fields[0] && document.getElementById(opts.fields[0].id);
-  if (first) setTimeout(function(){ first.focus(); }, 50);
-};
-</script>
-
-</body>
-</html>
+    catch(e){return safeClone(def
